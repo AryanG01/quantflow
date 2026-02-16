@@ -29,9 +29,7 @@ class TestRollingZScoreNormalizer:
 
         # Bar 150's z-score should be different (different raw value)
         # BUT bar 149's z-score should be the same (not affected)
-        assert normalized.loc[149, "feat"] == pytest.approx(
-            normalized_modified.loc[149, "feat"]
-        )
+        assert normalized.loc[149, "feat"] == pytest.approx(normalized_modified.loc[149, "feat"])
 
     def test_output_shape_matches_input(self) -> None:
         data = pd.DataFrame({"a": np.random.randn(100), "b": np.random.randn(100)})

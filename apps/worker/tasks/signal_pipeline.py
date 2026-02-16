@@ -56,9 +56,7 @@ class SignalPipeline:
             vwap_period=tech_cfg.vwap_period,
         )
         norm_cfg = config.features.normalization
-        self._normalizer = RollingZScoreNormalizer(
-            window=norm_cfg.window, shift=norm_cfg.shift
-        )
+        self._normalizer = RollingZScoreNormalizer(window=norm_cfg.window, shift=norm_cfg.shift)
 
         # ML model (retrained periodically, loaded from registry in production)
         self._model = LightGBMQuantileModel(quantiles=config.model.quantiles)
@@ -83,14 +81,10 @@ class SignalPipeline:
             vol_target=config.risk.vol_target,
             max_position_pct=config.risk.max_position_pct,
         )
-        self._drawdown_monitor = DrawdownMonitor(
-            max_drawdown_pct=config.risk.max_drawdown_pct
-        )
+        self._drawdown_monitor = DrawdownMonitor(max_drawdown_pct=config.risk.max_drawdown_pct)
 
         # Execution
-        self._order_manager = OrderManager(
-            paper_mode=(config.execution.mode == "paper")
-        )
+        self._order_manager = OrderManager(paper_mode=(config.execution.mode == "paper"))
 
         # Portfolio state (simplified in-memory for now)
         self._equity = 100_000.0
@@ -111,7 +105,11 @@ class SignalPipeline:
         with self._engine.connect() as conn:
             result = conn.execute(
                 query,
-                {"symbol": symbol, "timeframe": self._config.universe.timeframe, "limit": lookback_bars},
+                {
+                    "symbol": symbol,
+                    "timeframe": self._config.universe.timeframe,
+                    "limit": lookback_bars,
+                },
             )
             rows = result.fetchall()
 
@@ -234,7 +232,11 @@ class SignalPipeline:
             )
 
             # 9. Position sizing
-            realized_vol = float(features["realized_vol"].iloc[-1]) if pd.notna(features["realized_vol"].iloc[-1]) else 0.3
+            realized_vol = (
+                float(features["realized_vol"].iloc[-1])
+                if pd.notna(features["realized_vol"].iloc[-1])
+                else 0.3
+            )
             quantity = self._position_sizer.compute_size(
                 signal, portfolio, current_price, realized_vol
             )
@@ -244,7 +246,9 @@ class SignalPipeline:
 
             trade_value = quantity * current_price
             approved, reason = self._risk_checker.check_pre_trade(
-                signal, portfolio, trade_value,
+                signal,
+                portfolio,
+                trade_value,
                 data_timestamp=candles["time"].iloc[-1],
             )
 

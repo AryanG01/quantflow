@@ -27,7 +27,9 @@ class RegimeDetector:
         self._model: GaussianHMM | None = None
         self._state_to_regime: dict[int, Regime] = {}
 
-    def fit(self, log_returns: npt.NDArray[np.float64], realized_vol: npt.NDArray[np.float64]) -> None:
+    def fit(
+        self, log_returns: npt.NDArray[np.float64], realized_vol: npt.NDArray[np.float64]
+    ) -> None:
         """Fit the HMM on historical features.
 
         Args:
@@ -75,9 +77,9 @@ class RegimeDetector:
         sorted_states = np.argsort(vol_means)
 
         self._state_to_regime = {
-            int(sorted_states[0]): Regime.TRENDING,      # lowest vol
-            int(sorted_states[1]): Regime.MEAN_REVERTING, # medium vol
-            int(sorted_states[2]): Regime.CHOPPY,         # highest vol
+            int(sorted_states[0]): Regime.TRENDING,  # lowest vol
+            int(sorted_states[1]): Regime.MEAN_REVERTING,  # medium vol
+            int(sorted_states[2]): Regime.CHOPPY,  # highest vol
         }
 
     def predict(

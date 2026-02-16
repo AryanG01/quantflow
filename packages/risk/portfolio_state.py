@@ -35,11 +35,7 @@ class DBPortfolioStateStore(PortfolioStateStore):
 
     def get_snapshot(self) -> PortfolioSnapshot:
         """Get the latest portfolio snapshot."""
-        query = (
-            sa.select(PORTFOLIO_TABLE)
-            .order_by(PORTFOLIO_TABLE.c.time.desc())
-            .limit(1)
-        )
+        query = sa.select(PORTFOLIO_TABLE).order_by(PORTFOLIO_TABLE.c.time.desc()).limit(1)
 
         with self._engine.connect() as conn:
             result = conn.execute(query)

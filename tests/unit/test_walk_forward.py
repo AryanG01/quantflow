@@ -26,9 +26,7 @@ class TestWalkForwardSplits:
 
         for split in splits:
             gap = split.test_start - split.train_end
-            assert gap >= purge_bars, (
-                f"Fold {split.fold_idx}: gap {gap} < purge {purge_bars}"
-            )
+            assert gap >= purge_bars, f"Fold {split.fold_idx}: gap {gap} < purge {purge_bars}"
 
     def test_multiple_folds_generated(self) -> None:
         """Should generate multiple folds for sufficient data."""
@@ -39,9 +37,7 @@ class TestWalkForwardSplits:
 
     def test_no_splits_if_insufficient_data(self) -> None:
         """Should return empty list if data is too short."""
-        splits = generate_walk_forward_splits(
-            n_samples=100, train_bars=500, test_bars=100
-        )
+        splits = generate_walk_forward_splits(n_samples=100, train_bars=500, test_bars=100)
         assert len(splits) == 0
 
     def test_folds_are_sequential(self) -> None:
@@ -54,7 +50,7 @@ class TestWalkForwardSplits:
             prev = splits[i - 1]
             curr = splits[i]
             assert curr.train_start >= prev.test_end, (
-                f"Fold {i} starts at {curr.train_start}, but fold {i-1} ends at {prev.test_end}"
+                f"Fold {i} starts at {curr.train_start}, but fold {i - 1} ends at {prev.test_end}"
             )
 
     def test_embargo_between_folds(self) -> None:
@@ -66,6 +62,4 @@ class TestWalkForwardSplits:
 
         for i in range(1, len(splits)):
             gap = splits[i].train_start - splits[i - 1].test_end
-            assert gap >= embargo, (
-                f"Gap between folds {i-1} and {i}: {gap} < embargo {embargo}"
-            )
+            assert gap >= embargo, f"Gap between folds {i - 1} and {i}: {gap} < embargo {embargo}"

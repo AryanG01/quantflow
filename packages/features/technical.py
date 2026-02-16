@@ -49,14 +49,10 @@ class TechnicalFeatures(FeatureComputer):
         features["atr"] = self._compute_atr(high, low, close, self._atr_period)
 
         # Bollinger %B
-        features["bb_pct_b"] = self._compute_bollinger_pct_b(
-            close, self._bb_period, self._bb_std
-        )
+        features["bb_pct_b"] = self._compute_bollinger_pct_b(close, self._bb_period, self._bb_std)
 
         # VWAP deviation
-        features["vwap_deviation"] = self._compute_vwap_deviation(
-            close, volume, self._vwap_period
-        )
+        features["vwap_deviation"] = self._compute_vwap_deviation(close, volume, self._vwap_period)
 
         # Realized volatility (annualized from bar returns)
         log_ret = features["log_returns"]

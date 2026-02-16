@@ -120,6 +120,5 @@ class LightGBMQuantileModel(ModelPredictor):
             return {}
         importances = self._classifier.feature_importances_
         return {
-            name: float(imp)
-            for name, imp in zip(self._feature_names, importances, strict=True)
+            name: float(imp) for name, imp in zip(self._feature_names, importances, strict=True)
         }

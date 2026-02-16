@@ -43,12 +43,8 @@ class TestSignalFusion:
         fusioner = RegimeGatedMoE()
         components = {"technical": 0.8, "ml": 0.6, "sentiment": 0.2}
 
-        high_conf = fusioner.combine(
-            components, Regime.TRENDING, confidence=1.0, symbol="BTC/USDT"
-        )
-        low_conf = fusioner.combine(
-            components, Regime.TRENDING, confidence=0.3, symbol="BTC/USDT"
-        )
+        high_conf = fusioner.combine(components, Regime.TRENDING, confidence=1.0, symbol="BTC/USDT")
+        low_conf = fusioner.combine(components, Regime.TRENDING, confidence=0.3, symbol="BTC/USDT")
 
         assert abs(low_conf.strength) < abs(high_conf.strength)
 
@@ -57,9 +53,7 @@ class TestSignalFusion:
         fusioner = RegimeGatedMoE()
         components = {"technical": 0.0, "ml": 0.0, "sentiment": 0.0}
 
-        signal = fusioner.combine(
-            components, Regime.TRENDING, confidence=1.0, symbol="BTC/USDT"
-        )
+        signal = fusioner.combine(components, Regime.TRENDING, confidence=1.0, symbol="BTC/USDT")
         assert signal.direction == Direction.FLAT
 
     def test_negative_components_go_short(self) -> None:
@@ -67,8 +61,6 @@ class TestSignalFusion:
         fusioner = RegimeGatedMoE()
         components = {"technical": -0.8, "ml": -0.6, "sentiment": -0.2}
 
-        signal = fusioner.combine(
-            components, Regime.TRENDING, confidence=1.0, symbol="BTC/USDT"
-        )
+        signal = fusioner.combine(components, Regime.TRENDING, confidence=1.0, symbol="BTC/USDT")
         assert signal.direction == Direction.SHORT
         assert signal.strength < 0

@@ -46,9 +46,9 @@ class OrderManager:
             id=f"ord_{uuid.uuid4().hex[:12]}",
             time=datetime.now(UTC),
             symbol=symbol,
-            exchange="paper" if self._paper_mode else (
-                self._executor.get_exchange_name() if self._executor else "unknown"
-            ),
+            exchange="paper"
+            if self._paper_mode
+            else (self._executor.get_exchange_name() if self._executor else "unknown"),
             side=side,
             order_type=order_type,
             quantity=quantity,

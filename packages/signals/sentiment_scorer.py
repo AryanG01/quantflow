@@ -80,10 +80,7 @@ class SentimentScorer:
         cutoff = as_of - timedelta(hours=self._config.staleness_hours)
 
         # Filter relevant events
-        relevant = [
-            e for e in self._events
-            if e.symbol == symbol and e.time >= cutoff
-        ]
+        relevant = [e for e in self._events if e.symbol == symbol and e.time >= cutoff]
 
         if not relevant:
             return 0.0  # neutral when no data
@@ -118,9 +115,7 @@ class SentimentScorer:
 
     def _hash_event(self, event: SentimentEvent) -> str:
         """Create dedup hash from source + title + approximate time."""
-        bucket = event.time.replace(
-            minute=0, second=0, microsecond=0
-        )
+        bucket = event.time.replace(minute=0, second=0, microsecond=0)
         key = f"{event.source}:{event.title}:{bucket.isoformat()}"
         return hashlib.sha256(key.encode()).hexdigest()[:16]
 

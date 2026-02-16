@@ -84,8 +84,6 @@ class TestPositionSizer:
         strong = sizer.compute_size(
             _make_signal(strength=0.9), portfolio, 50000.0, realized_vol=0.20
         )
-        weak = sizer.compute_size(
-            _make_signal(strength=0.1), portfolio, 50000.0, realized_vol=0.20
-        )
+        weak = sizer.compute_size(_make_signal(strength=0.1), portfolio, 50000.0, realized_vol=0.20)
 
         assert strong > weak

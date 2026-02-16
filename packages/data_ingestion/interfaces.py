@@ -39,9 +39,7 @@ class MarketDataProvider(ABC):
         """Fetch current ticker (bid, ask, last, volume)."""
 
     @abstractmethod
-    async def fetch_orderbook(
-        self, symbol: str, limit: int = 20
-    ) -> dict[str, list[list[float]]]:
+    async def fetch_orderbook(self, symbol: str, limit: int = 20) -> dict[str, list[list[float]]]:
         """Fetch orderbook snapshot (bids, asks as [[price, qty], ...])."""
 
     @abstractmethod

@@ -109,11 +109,17 @@ def run_event_driven_backtest(
                     cash -= cost_dollar
                     position_qty += actual_change
 
-                    events.append(Event(
-                        type=EventType.FILL,
-                        bar_idx=i,
-                        data={"position_change": actual_change, "cost": cost_dollar, "price": price},
-                    ))
+                    events.append(
+                        Event(
+                            type=EventType.FILL,
+                            bar_idx=i,
+                            data={
+                                "position_change": actual_change,
+                                "cost": cost_dollar,
+                                "price": price,
+                            },
+                        )
+                    )
 
                     if abs(pos_change) > 0.01:
                         trade_returns_list.append(-cost_pct)
@@ -127,22 +133,26 @@ def run_event_driven_backtest(
         # Generate signal event
         target_pos = float(target_positions[i])
         current_pos = position_qty
-        events.append(Event(
-            type=EventType.SIGNAL, bar_idx=i, data={"target": target_pos, "current": current_pos}
-        ))
+        events.append(
+            Event(
+                type=EventType.SIGNAL,
+                bar_idx=i,
+                data={"target": target_pos, "current": current_pos},
+            )
+        )
 
         # Generate order if position change needed
         if abs(target_pos - current_pos) > 1e-10:
             fill_bar = i + config.fill_delay_bars
             pending_orders.append((fill_bar, target_pos))
-            events.append(Event(
-                type=EventType.ORDER, bar_idx=i, data={"target": target_pos}
-            ))
+            events.append(Event(type=EventType.ORDER, bar_idx=i, data={"target": target_pos}))
 
         actual_positions[i] = position_qty
 
         # Mark-to-market
-        position_value = position_qty * config.initial_capital * (price / closes[0] if closes[0] > 0 else 1)
+        position_value = (
+            position_qty * config.initial_capital * (price / closes[0] if closes[0] > 0 else 1)
+        )
         equity[i] = cash + position_value
 
     # Compute returns

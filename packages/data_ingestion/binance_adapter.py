@@ -45,9 +45,7 @@ class BinanceAdapter(MarketDataProvider):
         since_ms = int(since.timestamp() * 1000)
 
         try:
-            ohlcv = await self._exchange.fetch_ohlcv(
-                symbol, timeframe, since=since_ms, limit=limit
-            )
+            ohlcv = await self._exchange.fetch_ohlcv(symbol, timeframe, since=since_ms, limit=limit)
         except ccxt.BaseError as e:
             raise ExchangeError(f"Binance fetch_candles failed: {e}") from e
 
@@ -90,9 +88,7 @@ class BinanceAdapter(MarketDataProvider):
             "volume": float(ticker.get("baseVolume", 0)),
         }
 
-    async def fetch_orderbook(
-        self, symbol: str, limit: int = 20
-    ) -> dict[str, list[list[float]]]:
+    async def fetch_orderbook(self, symbol: str, limit: int = 20) -> dict[str, list[list[float]]]:
         await self._rate_limiter.acquire()
         try:
             book = await self._exchange.fetch_order_book(symbol, limit)

@@ -33,9 +33,7 @@ class FillSimulator:
 
         For 4h bars, typical latency < 1 bar, so most fills are immediate.
         """
-        latency_ms = self._rng.uniform(
-            self._config.latency_min_ms, self._config.latency_max_ms
-        )
+        latency_ms = self._rng.uniform(self._config.latency_min_ms, self._config.latency_max_ms)
         latency_bars = latency_ms / 1000 / timeframe_seconds
         return int(np.ceil(latency_bars))
 

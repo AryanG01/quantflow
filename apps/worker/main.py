@@ -55,8 +55,8 @@ class Worker:
         logger.info("worker_started", mode=self._config.execution.mode)
 
         signal_interval = 4 * 60 * 60  # 4 hours
-        sentiment_interval = 5 * 60    # 5 minutes
-        health_interval = 60           # 1 minute
+        sentiment_interval = 5 * 60  # 5 minutes
+        health_interval = 60  # 1 minute
 
         last_signal = 0.0
         last_sentiment = 0.0

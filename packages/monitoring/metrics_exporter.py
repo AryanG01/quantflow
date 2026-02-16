@@ -8,9 +8,7 @@ from prometheus_client import Counter, Gauge, Histogram, start_http_server
 equity_gauge = Gauge("trading_equity_usd", "Current portfolio equity in USD")
 drawdown_gauge = Gauge("trading_drawdown_pct", "Current drawdown percentage")
 positions_gauge = Gauge("trading_open_positions", "Number of open positions")
-signal_strength_gauge = Gauge(
-    "trading_signal_strength", "Latest signal strength", ["symbol"]
-)
+signal_strength_gauge = Gauge("trading_signal_strength", "Latest signal strength", ["symbol"])
 regime_gauge = Gauge("trading_regime", "Current market regime (0=trending, 1=mr, 2=choppy)")
 data_freshness_gauge = Gauge(
     "trading_data_freshness_seconds", "Seconds since last data update", ["source"]
@@ -18,9 +16,7 @@ data_freshness_gauge = Gauge(
 
 # Counters (cumulative)
 orders_counter = Counter("trading_orders_total", "Total orders submitted", ["side", "status"])
-rejections_counter = Counter(
-    "trading_rejections_total", "Total risk rejections", ["reason"]
-)
+rejections_counter = Counter("trading_rejections_total", "Total risk rejections", ["reason"])
 errors_counter = Counter("trading_errors_total", "Total errors", ["component"])
 
 # Histograms (distributions)

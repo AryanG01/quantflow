@@ -70,9 +70,9 @@ def bootstrap_returns(
     for sim in range(n_simulations):
         # Block bootstrap: sample blocks with replacement
         block_starts = rng.integers(0, max(1, n - block_size), size=n_blocks)
-        sim_returns = np.concatenate([
-            returns[start : start + block_size] for start in block_starts
-        ])[:n]
+        sim_returns = np.concatenate(
+            [returns[start : start + block_size] for start in block_starts]
+        )[:n]
 
         sharpes[sim] = compute_sharpe(sim_returns)
 
