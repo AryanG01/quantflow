@@ -6,7 +6,8 @@ to the frontend dashboard.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import random
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from fastapi import FastAPI
@@ -17,7 +18,11 @@ app = FastAPI(title="AI Trading System API", version="0.1.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    allow_origins=[
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://localhost:4000",
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -96,12 +101,136 @@ class EquityCurvePoint(BaseModel):
 # ── In-memory state (replaced by DB queries in production) ───
 
 _start_time = datetime.now(UTC)
-_latest_signals: dict[str, SignalResponse] = {}
-_positions: list[PositionResponse] = []
-_portfolio: PortfolioResponse | None = None
-_risk_metrics: RiskMetricsResponse | None = None
-_regime: RegimeResponse | None = None
-_equity_history: list[EquityCurvePoint] = []
+
+
+def _generate_demo_data() -> dict[str, Any]:
+    """Generate realistic demo data for the dashboard."""
+    now = datetime.now(UTC)
+
+    # Equity curve: 90 days of simulated growth with noise
+    equity_history = []
+    equity = 100_000.0
+    random.seed(42)
+    for i in range(90 * 6):  # 6 bars per day (4h bars)
+        daily_return = random.gauss(0.0003, 0.012)
+        equity *= 1 + daily_return
+        ts = now - timedelta(hours=(90 * 6 - i) * 4)
+        equity_history.append(EquityCurvePoint(timestamp=ts.isoformat(), equity=round(equity, 2)))
+
+    current_equity = equity_history[-1].equity
+    peak_equity = max(p.equity for p in equity_history)
+    drawdown = (peak_equity - current_equity) / peak_equity
+
+    # Signals
+    signals = {
+        "BTC/USDT": SignalResponse(
+            symbol="BTC/USDT",
+            direction="long",
+            strength=0.72,
+            confidence=0.85,
+            regime="trending",
+            components={"technical": 0.65, "ml": 0.80, "sentiment": 0.15},
+            timestamp=now.isoformat(),
+        ),
+        "ETH/USDT": SignalResponse(
+            symbol="ETH/USDT",
+            direction="short",
+            strength=-0.35,
+            confidence=0.62,
+            regime="mean_reverting",
+            components={"technical": -0.40, "ml": -0.25, "sentiment": -0.10},
+            timestamp=(now - timedelta(hours=1)).isoformat(),
+        ),
+        "SOL/USDT": SignalResponse(
+            symbol="SOL/USDT",
+            direction="flat",
+            strength=0.08,
+            confidence=0.41,
+            regime="choppy",
+            components={"technical": 0.12, "ml": -0.05, "sentiment": 0.10},
+            timestamp=(now - timedelta(hours=2)).isoformat(),
+        ),
+    }
+
+    # Positions
+    positions = [
+        PositionResponse(
+            symbol="BTC/USDT",
+            side="long",
+            quantity=0.45,
+            entry_price=96_420.0,
+            current_price=98_150.0,
+            unrealized_pnl=778.50,
+            unrealized_pnl_pct=1.79,
+        ),
+        PositionResponse(
+            symbol="ETH/USDT",
+            side="short",
+            quantity=3.2,
+            entry_price=3_450.0,
+            current_price=3_380.0,
+            unrealized_pnl=224.0,
+            unrealized_pnl_pct=2.03,
+        ),
+    ]
+
+    positions_value = sum(p.quantity * p.current_price for p in positions)
+    unrealized_pnl = sum(p.unrealized_pnl for p in positions)
+    cash = current_equity - positions_value
+
+    portfolio = PortfolioResponse(
+        equity=round(current_equity, 2),
+        cash=round(cash, 2),
+        positions_value=round(positions_value, 2),
+        unrealized_pnl=round(unrealized_pnl, 2),
+        realized_pnl=4_325.80,
+        drawdown_pct=round(drawdown, 4),
+        timestamp=now.isoformat(),
+    )
+
+    risk = RiskMetricsResponse(
+        current_drawdown_pct=round(drawdown, 4),
+        max_drawdown_pct=round(drawdown + 0.02, 4),
+        portfolio_vol=0.142,
+        sharpe_ratio=1.85,
+        concentration_pct=round(positions_value / current_equity, 4) if current_equity > 0 else 0,
+        kill_switch_active=False,
+    )
+
+    regime = RegimeResponse(
+        current="trending",
+        confidence=0.85,
+        history=[
+            {"timestamp": (now - timedelta(hours=h * 4)).isoformat(), "regime": r}
+            for h, r in [
+                (0, "trending"),
+                (1, "trending"),
+                (2, "mean_reverting"),
+                (3, "mean_reverting"),
+                (4, "choppy"),
+                (5, "trending"),
+            ]
+        ],
+    )
+
+    return {
+        "signals": signals,
+        "positions": positions,
+        "portfolio": portfolio,
+        "risk": risk,
+        "regime": regime,
+        "equity_history": equity_history,
+    }
+
+
+# Generate demo data on startup
+_demo = _generate_demo_data()
+_latest_signals: dict[str, SignalResponse] = _demo["signals"]
+_positions: list[PositionResponse] = _demo["positions"]
+_portfolio: PortfolioResponse | None = _demo["portfolio"]
+_risk_metrics: RiskMetricsResponse | None = _demo["risk"]
+_regime: RegimeResponse | None = _demo["regime"]
+_equity_history: list[EquityCurvePoint] = _demo["equity_history"]
 _backtest_results: list[BacktestSummary] = []
 
 
