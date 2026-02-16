@@ -98,6 +98,28 @@ class EquityCurvePoint(BaseModel):
     equity: float
 
 
+class TradeResponse(BaseModel):
+    id: str
+    timestamp: str
+    symbol: str
+    side: str
+    quantity: float
+    price: float
+    fees: float
+    pnl: float
+    signal_strength: float
+    regime: str
+
+
+class ConfigResponse(BaseModel):
+    universe: dict[str, Any]
+    risk: dict[str, Any]
+    execution: dict[str, Any]
+    features: dict[str, Any]
+    model: dict[str, Any]
+    regime: dict[str, Any]
+
+
 # ── In-memory state (replaced by DB queries in production) ───
 
 _start_time = datetime.now(UTC)
@@ -213,6 +235,115 @@ def _generate_demo_data() -> dict[str, Any]:
         ],
     )
 
+    # Trade history
+    trade_symbols = ["BTC/USDT", "ETH/USDT", "SOL/USDT"]
+    trade_sides = ["buy", "sell"]
+    trade_regimes = ["trending", "mean_reverting", "choppy"]
+    trades = []
+    for i in range(50):
+        sym = trade_symbols[i % 3]
+        side = trade_sides[i % 2]
+        price = {
+            "BTC/USDT": 95_000 + random.uniform(-3000, 3000),
+            "ETH/USDT": 3_400 + random.uniform(-200, 200),
+            "SOL/USDT": 180 + random.uniform(-20, 20),
+        }[sym]
+        qty = {
+            "BTC/USDT": round(random.uniform(0.01, 0.5), 4),
+            "ETH/USDT": round(random.uniform(0.5, 5), 3),
+            "SOL/USDT": round(random.uniform(5, 50), 2),
+        }[sym]
+        trades.append(
+            TradeResponse(
+                id=f"T{1000 + i}",
+                timestamp=(now - timedelta(hours=i * 4 + random.randint(0, 3))).isoformat(),
+                symbol=sym,
+                side=side,
+                quantity=qty,
+                price=round(price, 2),
+                fees=round(price * qty * 0.001, 2),
+                pnl=round(random.uniform(-500, 800), 2),
+                signal_strength=round(random.uniform(-1, 1), 3),
+                regime=trade_regimes[i % 3],
+            )
+        )
+
+    # Config
+    config = ConfigResponse(
+        universe={
+            "symbols": ["BTC/USDT", "ETH/USDT", "SOL/USDT"],
+            "timeframe": "4h",
+            "lookback_days": 730,
+        },
+        risk={
+            "max_drawdown_pct": 0.15,
+            "vol_target": 0.15,
+            "max_position_pct": 0.25,
+            "max_concentration_pct": 0.30,
+            "min_trade_usd": 10.0,
+            "kill_switch": "-15% drawdown",
+        },
+        execution={"mode": "paper", "order_timeout_seconds": 120, "max_retries": 3},
+        features={
+            "technical": ["RSI(14)", "ATR(14)", "BB %B(20,2)", "VWAP(24)", "Realized Vol(24)"],
+            "normalization": "Rolling Z-Score (window=100, shift=1)",
+        },
+        model={
+            "type": "LightGBM Quantile Regression",
+            "quantiles": [0.1, 0.25, 0.5, 0.75, 0.9],
+            "labeling": "Triple-Barrier (PT=3%, SL=1.5%, max=12 bars)",
+        },
+        regime={
+            "model": "3-state Gaussian HMM",
+            "states": ["Trending", "Mean-Reverting", "Choppy"],
+            "features": ["log_returns", "realized_vol"],
+        },
+    )
+
+    # Backtest results
+    backtest_results = [
+        BacktestSummary(
+            strategy="Full System (Regime-Gated MoE)",
+            total_return=0.342,
+            sharpe_ratio=1.85,
+            max_drawdown=0.087,
+            total_trades=156,
+            hit_rate=0.58,
+        ),
+        BacktestSummary(
+            strategy="Buy & Hold",
+            total_return=0.215,
+            sharpe_ratio=0.92,
+            max_drawdown=0.234,
+            total_trades=1,
+            hit_rate=1.0,
+        ),
+        BacktestSummary(
+            strategy="MA Crossover (20/50)",
+            total_return=0.178,
+            sharpe_ratio=1.12,
+            max_drawdown=0.156,
+            total_trades=42,
+            hit_rate=0.52,
+        ),
+        BacktestSummary(
+            strategy="No Regime (equal weights)",
+            total_return=0.256,
+            sharpe_ratio=1.41,
+            max_drawdown=0.121,
+            total_trades=148,
+            hit_rate=0.54,
+        ),
+        BacktestSummary(
+            strategy="No Sentiment",
+            total_return=0.318,
+            sharpe_ratio=1.72,
+            max_drawdown=0.092,
+            total_trades=152,
+            hit_rate=0.57,
+        ),
+    ]
+
     return {
         "signals": signals,
         "positions": positions,
@@ -220,6 +351,9 @@ def _generate_demo_data() -> dict[str, Any]:
         "risk": risk,
         "regime": regime,
         "equity_history": equity_history,
+        "trades": trades,
+        "config": config,
+        "backtest_results": backtest_results,
     }
 
 
@@ -231,7 +365,9 @@ _portfolio: PortfolioResponse | None = _demo["portfolio"]
 _risk_metrics: RiskMetricsResponse | None = _demo["risk"]
 _regime: RegimeResponse | None = _demo["regime"]
 _equity_history: list[EquityCurvePoint] = _demo["equity_history"]
-_backtest_results: list[BacktestSummary] = []
+_trades: list[TradeResponse] = _demo["trades"]
+_config: ConfigResponse = _demo["config"]
+_backtest_results: list[BacktestSummary] = _demo["backtest_results"]
 
 
 # ── Routes ───────────────────────────────────────────────────
@@ -286,6 +422,16 @@ async def get_equity_history() -> list[EquityCurvePoint]:
 @app.get("/api/backtest-results", response_model=list[BacktestSummary])
 async def get_backtest_results() -> list[BacktestSummary]:
     return _backtest_results
+
+
+@app.get("/api/trades", response_model=list[TradeResponse])
+async def get_trades() -> list[TradeResponse]:
+    return _trades
+
+
+@app.get("/api/config", response_model=ConfigResponse)
+async def get_config() -> ConfigResponse:
+    return _config
 
 
 # ── State update functions (called by worker) ───────────────

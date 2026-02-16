@@ -30,34 +30,8 @@ export default function Dashboard() {
   const { data: regime } = usePolling(useCallback(() => api.regime(), []), 5000);
   const { data: equityHistory } = usePolling(useCallback(() => api.equityHistory(), []), 15000);
 
-  const isConnected = health?.status === "ok";
-
   return (
-    <div className="min-h-screen p-4 md:p-6 max-w-[1600px] mx-auto">
-      {/* ── Header ─────────────────────────────────── */}
-      <header className="flex items-center justify-between mb-6 animate-fade-in">
-        <div className="flex items-center gap-4">
-          <h1 className="text-lg font-bold tracking-tight">
-            <span className="text-[var(--color-accent-cyan)]">AI</span>
-            <span className="text-[var(--color-text-muted)]">::</span>
-            TRADING
-          </h1>
-          <div className="h-4 w-px bg-[var(--color-border)]" />
-          {regime && <RegimeBadge regime={regime.current} confidence={regime.confidence} />}
-        </div>
-        <div className="flex items-center gap-3 text-xs">
-          <span className="text-[var(--color-text-muted)]">v{health?.version ?? "—"}</span>
-          <div className="flex items-center gap-1.5">
-            <span
-              className={`w-2 h-2 rounded-full ${isConnected ? "bg-emerald-400 pulse-dot" : "bg-red-400"}`}
-            />
-            <span className={isConnected ? "text-emerald-400" : "text-red-400"}>
-              {isConnected ? "LIVE" : "OFFLINE"}
-            </span>
-          </div>
-        </div>
-      </header>
-
+    <>
       {/* ── Portfolio Metrics Row ──────────────────── */}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2 mb-4 stagger">
         <MetricCard
@@ -94,7 +68,7 @@ export default function Dashboard() {
 
       {/* ── Main Grid ─────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 stagger">
-        {/* Left column: Signals + Positions */}
+        {/* Left column: Signals + Equity + Positions */}
         <div className="lg:col-span-2 space-y-4">
           <SignalPanel signals={signals || []} />
           <EquityChart data={equityHistory || []} />
@@ -124,7 +98,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Right column: Risk */}
+        {/* Right column: Risk + Regime */}
         <div className="space-y-4">
           <RiskPanel risk={risk} />
 
@@ -137,7 +111,7 @@ export default function Dashboard() {
               <div className="space-y-3">
                 <RegimeBadge regime={regime.current} confidence={regime.confidence} />
                 <div className="text-[10px] text-[var(--color-text-muted)] space-y-1">
-                  <p>States: Trending · Mean-Reverting · Choppy</p>
+                  <p>States: Trending / Mean-Reverting / Choppy</p>
                   <p>Model: 3-state Gaussian HMM</p>
                   <p>Features: log_returns, realized_vol</p>
                 </div>
@@ -153,13 +127,13 @@ export default function Dashboard() {
               Architecture
             </h3>
             <div className="text-[10px] text-[var(--color-text-muted)] space-y-1 font-mono">
-              <p className="text-[var(--color-accent-cyan)]">▸ Regime-Gated MoE</p>
-              <p>├─ Technical Features (RSI, ATR, BB, VWAP)</p>
-              <p>├─ LightGBM Quantile Regression</p>
-              <p>├─ Sentiment (CryptoPanic + Reddit)</p>
-              <p>├─ HMM Regime Detection (3-state)</p>
-              <p>├─ Vol-Target Position Sizing</p>
-              <p>└─ Kill Switch @ -15% DD</p>
+              <p className="text-[var(--color-accent-cyan)]">* Regime-Gated MoE</p>
+              <p>|- Technical Features (RSI, ATR, BB, VWAP)</p>
+              <p>|- LightGBM Quantile Regression</p>
+              <p>|- Sentiment (CryptoPanic + Reddit)</p>
+              <p>|- HMM Regime Detection (3-state)</p>
+              <p>|- Vol-Target Position Sizing</p>
+              <p>|- Kill Switch @ -15% DD</p>
             </div>
           </div>
         </div>
@@ -168,9 +142,9 @@ export default function Dashboard() {
       {/* ── Footer ─────────────────────────────────── */}
       <footer className="mt-8 pt-4 border-t border-[var(--color-border)] text-center">
         <p className="text-[10px] text-[var(--color-text-muted)] tracking-wider">
-          AI TRADING SYSTEM · CRYPTO SPOT · MULTI-EXCHANGE · 4H SWING
+          QUANTFLOW · CRYPTO SPOT · MULTI-EXCHANGE · 4H SWING
         </p>
       </footer>
-    </div>
+    </>
   );
 }

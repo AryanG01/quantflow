@@ -59,6 +59,28 @@ export interface BacktestResult {
   hit_rate: number;
 }
 
+export interface Trade {
+  id: string;
+  timestamp: string;
+  symbol: string;
+  side: string;
+  quantity: number;
+  price: number;
+  fees: number;
+  pnl: number;
+  signal_strength: number;
+  regime: string;
+}
+
+export interface SystemConfig {
+  universe: Record<string, unknown>;
+  risk: Record<string, unknown>;
+  execution: Record<string, unknown>;
+  features: Record<string, unknown>;
+  model: Record<string, unknown>;
+  regime: Record<string, unknown>;
+}
+
 export interface HealthStatus {
   status: string;
   timestamp: string;
@@ -85,4 +107,6 @@ export const api = {
   regime: () => fetchJson<Regime>("/regime"),
   equityHistory: () => fetchJson<EquityCurvePoint[]>("/equity-history"),
   backtestResults: () => fetchJson<BacktestResult[]>("/backtest-results"),
+  trades: () => fetchJson<Trade[]>("/trades"),
+  config: () => fetchJson<SystemConfig>("/config"),
 };
