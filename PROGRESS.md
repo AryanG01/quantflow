@@ -48,6 +48,15 @@
 - [x] Proxies to FastAPI backend via Next.js rewrites (port 4000 → 8000)
 - [x] Builds cleanly
 
+### Frontend Multi-Page Navigation ✅
+- [x] NavBar component with active-state highlighting (Dashboard, Trades, Backtest, Settings)
+- [x] SharedHeader extracted into layout for consistent branding + nav across all pages
+- [x] **Trades page** — Filterable trade history table with PnL summary cards, regime color-coding
+- [x] **Backtest page** — Strategy comparison table ranked by Sharpe, methodology footer
+- [x] **Settings page** — Recursive config tree renderer with type-colored values (read-only)
+- [x] API endpoints: `/api/trades`, `/api/config` with demo data
+- [x] All 7 pages build cleanly
+
 ### Testing ✅
 - [x] 72 unit/integration tests, all passing
 - [x] Test coverage: cost_model, metrics, technical, normalizer, labeling, walk_forward, regime_detector, signal_fusion, position_sizer, risk_checks, backtest_engine
@@ -100,8 +109,6 @@ The dashboard is a **read-only monitoring panel**. It displays:
 **What it does NOT do yet:**
 - No manual trade placement from the UI
 - No wallet/exchange connection from the UI
-- No settings page
-
 **Trading modes** (configured in `config/default.yaml`):
 - `paper` (default): Simulates trades with fake money
 - `live`: Connects to real Binance/Coinbase via API keys in `.env`
@@ -122,20 +129,15 @@ The dashboard is a **read-only monitoring panel**. It displays:
 - Backfill historical candles from Binance
 - Run worker to generate live signals
 
-### 2. Additional frontend pages
-- Trade history page
-- Backtest results page
-- Settings/configuration page
-
-### 3. Manual trading controls
+### 2. Manual trading controls
 - Add buy/sell buttons to the UI
 - API endpoints for manual order placement
 
-### 4. Exchange wallet connection
+### 3. Exchange wallet connection
 - UI flow for entering API keys
 - Connect to real Binance/Coinbase accounts
 
-### 5. Deploy to cloud
+### 4. Deploy to cloud
 - Vercel for frontend
 - Docker on a VPS for backend + worker + DB
 
@@ -178,6 +180,8 @@ QuantFlow/
 - **Paper mode first**: All execution goes through paper trading before live capital
 
 ## Commits (latest first)
+- `00836b2` — Add frontend navigation, trades/backtest/settings pages
+- `17d113a` — Add demo data, HOW_IT_WORKS docs, update PROGRESS tracking
 - `ef0f960` — Skip integration tests in CI (Binance geo-blocked)
 - `0b6c249` — Fix mypy type errors (remove stale type:ignore, fix types)
 - `a6882a8` — Apply ruff format to all Python files
