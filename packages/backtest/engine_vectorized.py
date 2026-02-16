@@ -39,7 +39,7 @@ class BacktestResult:
 
 
 # Signal function: takes OHLCV DataFrame, returns position array [-1, 0, 1]
-SignalFn = Callable[[pd.DataFrame], npt.NDArray[np.float64]]
+SignalFn = Callable[..., npt.NDArray[np.float64]]
 
 
 def run_vectorized_backtest(
@@ -96,7 +96,9 @@ def run_vectorized_backtest(
     strategy_returns = positions * bar_returns - costs_pct * position_changes
 
     # Equity curve
-    equity_curve = config.initial_capital * np.cumprod(1 + strategy_returns)
+    equity_curve = np.asarray(
+        config.initial_capital * np.cumprod(1 + strategy_returns), dtype=np.float64
+    )
 
     # Extract per-trade returns (each position change starts a new trade)
     trade_indices = np.where(position_changes > 0)[0]

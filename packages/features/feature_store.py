@@ -36,7 +36,7 @@ class FeatureStore:
         symbol: str,
         feature_set: str,
         features: pd.DataFrame,
-        timestamps: pd.Series,  # type: ignore[type-arg]
+        timestamps: pd.Series,
         version: int = 1,
     ) -> int:
         """Write feature rows to DB. Idempotent via upsert."""
@@ -59,7 +59,7 @@ class FeatureStore:
         stmt = pg_insert(FEATURES_TABLE).values(rows).on_conflict_do_nothing()
         with self._engine.begin() as conn:
             result = conn.execute(stmt)
-            return result.rowcount  # type: ignore[return-value]
+            return result.rowcount or 0
 
     def read_features(
         self,

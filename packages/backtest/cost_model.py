@@ -52,7 +52,7 @@ class CostModel:
         )
         fees = self._config.taker_fee_bps
 
-        return slippage + fees  # type: ignore[return-value]
+        return slippage + fees
 
     def compute_costs_pct(
         self,

@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 from packages.backtest.benchmarks import buy_and_hold, ma_crossover
-from packages.backtest.engine_vectorized import BacktestConfig, run_vectorized_backtest
+from packages.backtest.engine_vectorized import BacktestConfig, SignalFn, run_vectorized_backtest
 from packages.backtest.report import print_report
 
 
@@ -14,7 +14,7 @@ def run_ablation(candles: pd.DataFrame) -> None:
     """Run ablation study comparing strategy variants."""
     config = BacktestConfig(initial_capital=100_000.0)
 
-    variants = {
+    variants: dict[str, SignalFn] = {
         "Buy & Hold": buy_and_hold,
         "MA Crossover (baseline)": ma_crossover,
     }

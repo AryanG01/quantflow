@@ -58,7 +58,7 @@ def _upsert_candles(engine: Engine, candles: list[Candle]) -> int:
 
     with engine.begin() as conn:
         result = conn.execute(stmt)
-        return result.rowcount  # type: ignore[return-value]
+        return result.rowcount or 0
 
 
 async def backfill_candles(

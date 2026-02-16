@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 from packages.backtest.benchmarks import buy_and_hold, ma_crossover, mean_reversion
-from packages.backtest.engine_vectorized import BacktestConfig, run_vectorized_backtest
+from packages.backtest.engine_vectorized import BacktestConfig, SignalFn, run_vectorized_backtest
 from packages.backtest.monte_carlo import bootstrap_returns
 from packages.backtest.report import print_report
 from packages.common.config import load_config
@@ -34,7 +34,7 @@ def main() -> None:
 
     config = BacktestConfig(initial_capital=100_000.0)
 
-    strategies = {
+    strategies: dict[str, SignalFn] = {
         "Buy & Hold": buy_and_hold,
         "MA Crossover (20/50)": ma_crossover,
         "Mean Reversion": mean_reversion,

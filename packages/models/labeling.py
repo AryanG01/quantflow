@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 
 def triple_barrier_labels(
-    close: pd.Series,  # type: ignore[type-arg]
+    close: pd.Series,
     profit_taking_pct: float = 0.03,
     stop_loss_pct: float = 0.015,
     max_holding_bars: int = 12,

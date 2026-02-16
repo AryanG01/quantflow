@@ -73,7 +73,7 @@ class TechnicalFeatures(FeatureComputer):
         ]
 
     @staticmethod
-    def _compute_rsi(close: pd.Series, period: int) -> pd.Series:  # type: ignore[type-arg]
+    def _compute_rsi(close: pd.Series, period: int) -> pd.Series:
         """RSI using exponential moving average of gains/losses."""
         delta = close.diff()
         gain = delta.where(delta > 0, 0.0)
@@ -88,11 +88,11 @@ class TechnicalFeatures(FeatureComputer):
 
     @staticmethod
     def _compute_atr(
-        high: pd.Series,  # type: ignore[type-arg]
-        low: pd.Series,  # type: ignore[type-arg]
-        close: pd.Series,  # type: ignore[type-arg]
+        high: pd.Series,
+        low: pd.Series,
+        close: pd.Series,
         period: int,
-    ) -> pd.Series:  # type: ignore[type-arg]
+    ) -> pd.Series:
         """Average True Range."""
         tr1 = high - low
         tr2 = (high - close.shift(1)).abs()
@@ -102,10 +102,10 @@ class TechnicalFeatures(FeatureComputer):
 
     @staticmethod
     def _compute_bollinger_pct_b(
-        close: pd.Series,  # type: ignore[type-arg]
+        close: pd.Series,
         period: int,
         std_dev: float,
-    ) -> pd.Series:  # type: ignore[type-arg]
+    ) -> pd.Series:
         """Bollinger %B: (close - lower) / (upper - lower)."""
         sma = close.rolling(period).mean()
         std = close.rolling(period).std()
@@ -117,10 +117,10 @@ class TechnicalFeatures(FeatureComputer):
 
     @staticmethod
     def _compute_vwap_deviation(
-        close: pd.Series,  # type: ignore[type-arg]
-        volume: pd.Series,  # type: ignore[type-arg]
+        close: pd.Series,
+        volume: pd.Series,
         period: int,
-    ) -> pd.Series:  # type: ignore[type-arg]
+    ) -> pd.Series:
         """Deviation of close from rolling VWAP."""
         cum_vol = volume.rolling(period).sum()
         cum_pv = (close * volume).rolling(period).sum()

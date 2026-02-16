@@ -33,7 +33,7 @@ class BinanceExecutor(ExecutionAdapter):
 
     async def submit_order(self, order: Order) -> Order:
         try:
-            params = {}
+            params: dict[str, str] = {}
             if order.order_type == OrderType.MARKET:
                 result = await self._exchange.create_order(
                     symbol=order.symbol,
