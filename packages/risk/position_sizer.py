@@ -8,7 +8,10 @@ Position size formula:
 
 from __future__ import annotations
 
-from packages.common.types import PortfolioSnapshot, Signal
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from packages.common.types import PortfolioSnapshot, Signal
 
 
 class VolTargetPositionSizer:

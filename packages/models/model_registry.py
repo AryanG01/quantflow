@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import pickle
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from packages.common.logging import get_logger
@@ -52,7 +52,7 @@ class ModelRegistry:
         metadata = ModelMetadata(
             model_id=model_id,
             model_type=model_type,
-            created_at=datetime.now(timezone.utc).isoformat(),
+            created_at=datetime.now(UTC).isoformat(),
             train_metrics=train_metrics,
             feature_names=feature_names,
             config=config or {},

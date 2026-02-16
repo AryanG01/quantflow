@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 
-from packages.common.types import Order
+if TYPE_CHECKING:
+    from packages.common.types import Order
 
 
 class ExecutionAdapter(ABC):

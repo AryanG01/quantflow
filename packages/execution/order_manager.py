@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from packages.common.errors import ExchangeError
 from packages.common.logging import get_logger
 from packages.common.types import Order, OrderStatus, OrderType, Side
-from packages.execution.interfaces import ExecutionAdapter
+
+if TYPE_CHECKING:
+    from packages.execution.interfaces import ExecutionAdapter
 
 logger = get_logger(__name__)
 
@@ -41,7 +44,7 @@ class OrderManager:
         """Submit a new order (paper or live)."""
         order = Order(
             id=f"ord_{uuid.uuid4().hex[:12]}",
-            time=datetime.now(timezone.utc),
+            time=datetime.now(UTC),
             symbol=symbol,
             exchange="paper" if self._paper_mode else (
                 self._executor.get_exchange_name() if self._executor else "unknown"

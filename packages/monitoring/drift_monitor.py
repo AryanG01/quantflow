@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import numpy.typing as npt
-import pandas as pd
 
 from packages.common.logging import get_logger
 from packages.models.drift_detector import compute_psi
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 logger = get_logger(__name__)
 

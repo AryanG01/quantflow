@@ -6,8 +6,8 @@ and produces an equity curve with performance metrics.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Callable
 
 import numpy as np
 import numpy.typing as npt

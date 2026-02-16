@@ -13,7 +13,7 @@ from packages.common.config import load_config
 
 
 def main() -> None:
-    cfg = load_config()
+    load_config()
 
     # Generate synthetic data for now (replaced by DB fetch in production)
     np.random.seed(42)
@@ -46,7 +46,7 @@ def main() -> None:
 
         # Monte Carlo
         mc = bootstrap_returns(result.returns, n_simulations=500)
-        print(f"  Monte Carlo (500 sims):")
+        print("  Monte Carlo (500 sims):")
         print(f"    Sharpe 5th pct: {mc.sharpe_5th_percentile:.2f}")
         print(f"    Sharpe mean:    {mc.sharpe_mean:.2f}")
         print(f"    Sharpe 95th pct: {mc.sharpe_95th_percentile:.2f}")

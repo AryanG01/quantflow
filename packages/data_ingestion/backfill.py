@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.engine import Engine
 
 from packages.common.logging import get_logger
 from packages.common.time_utils import timeframe_to_ms
-from packages.common.types import Candle
-from packages.data_ingestion.interfaces import MarketDataProvider
+
+if TYPE_CHECKING:
+    from sqlalchemy.engine import Engine
+
+    from packages.common.types import Candle
+    from packages.data_ingestion.interfaces import MarketDataProvider
 
 logger = get_logger(__name__)
 
@@ -75,10 +79,10 @@ async def backfill_candles(
         Total number of new candles inserted.
     """
     if end is None:
-        end = datetime.now(timezone.utc)
+        end = datetime.now(UTC)
 
-    start = start.replace(tzinfo=timezone.utc) if start.tzinfo is None else start
-    end = end.replace(tzinfo=timezone.utc) if end.tzinfo is None else end
+    start = start.replace(tzinfo=UTC) if start.tzinfo is None else start
+    end = end.replace(tzinfo=UTC) if end.tzinfo is None else end
 
     tf_ms = timeframe_to_ms(timeframe)
     total_inserted = 0

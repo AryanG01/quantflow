@@ -1,5 +1,7 @@
 # QuantFlow — Progress Tracker
 
+## Repo: https://github.com/AryanG01/quantflow
+
 ## Completed
 
 ### Phase 1 — Data Ingestion + Baseline Backtest ✅
@@ -50,37 +52,44 @@
 - [x] 71 unit/integration tests, all passing
 - [x] Test coverage: cost_model, metrics, technical, normalizer, labeling, walk_forward, regime_detector, signal_fusion, position_sizer, risk_checks, backtest_engine
 
+### Repo + Infra ✅
+- [x] GitHub repo created: https://github.com/AryanG01/quantflow
+- [x] Initial commit pushed (CLAUDE.md excluded via .gitignore)
+- [x] README.md with full project description
+- [x] PROGRESS.md for tracking
+
+### Worker Pipeline ✅
+- [x] `apps/worker/tasks/signal_pipeline.py` — Full SignalPipeline class
+- [x] `apps/worker/main.py` — Worker class with DB engine, wired to SignalPipeline
+
+### Equity Curve Chart ✅
+- [x] `frontend/src/components/EquityChart.tsx` — Recharts AreaChart with green/red gradient fill
+- [x] Wired into main dashboard page, polls `/api/equity-history` every 15s
+
+### GitHub Actions CI ✅
+- [x] `.github/workflows/ci.yml` — ruff + mypy + pytest (Python) + frontend build (Node.js)
+
+### Lint Cleanup ✅
+- [x] All ruff issues resolved (0 errors)
+- [x] `(str, Enum)` migrated to `StrEnum` (Python 3.12)
+- [x] TC type-checking imports applied (with Pydantic runtime exceptions)
+- [x] ML naming convention (X, y) preserved via per-file ignores
+- [x] 72 tests passing
+
 ---
 
-## Pending Tasks
+## Next Tasks (in priority order)
 
-### Immediate
-- [ ] GitHub repo creation + initial push
-- [ ] Wire worker tasks to call actual pipeline functions end-to-end
-- [ ] Add equity curve chart (Recharts LineChart) to frontend
-- [ ] Add WebSocket or SSE for real-time frontend updates
+### 1. End-to-end integration test
+- Test SignalPipeline against a running DB with seeded candle data
 
-### Quality & CI
-- [ ] `mypy --strict` full pass (clean up type: ignore comments)
-- [ ] `ruff check` full pass
-- [ ] GitHub Actions CI pipeline (lint + typecheck + test + backtest regression)
-- [ ] Pre-commit hooks (ruff, mypy)
+### 2. mypy strict cleanup
+- Run `uv run mypy packages/ apps/ scripts/` and fix remaining type errors
 
-### Production Hardening
-- [ ] Grafana dashboard JSON provisioning
-- [ ] Add more comprehensive integration tests
-- [ ] Load testing for API endpoints
-- [ ] Secrets management (vault or env-based)
-- [ ] Structured error responses in API
-- [ ] Rate limiting on API endpoints
-- [ ] Health check endpoint with dependency checks (DB, Redis)
-
-### Feature Enhancements
-- [ ] Backtest results page in frontend (table + charts)
-- [ ] Trade history page in frontend
-- [ ] Settings/config page in frontend
-- [ ] Model performance tracking dashboard
-- [ ] Multi-symbol correlation matrix view
+### 3. Additional frontend pages
+- Trade history page
+- Backtest results page
+- Settings page
 
 ---
 
@@ -99,8 +108,10 @@ QuantFlow/
 │   ├── backtest/       # Vectorized + event-driven engines
 │   └── monitoring/     # Prometheus, alerting, drift
 ├── apps/
-│   ├── api/            # FastAPI backend
+│   ├── api/            # FastAPI backend (8 endpoints)
 │   └── worker/         # Scheduled pipeline tasks
+│       └── tasks/
+│           └── signal_pipeline.py  # Full pipeline orchestration
 ├── frontend/           # Next.js dashboard
 ├── scripts/            # CLI tools (backfill, backtest, ablation)
 ├── tests/              # 71 tests (unit + integration)

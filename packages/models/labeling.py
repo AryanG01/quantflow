@@ -8,9 +8,13 @@ Labels each bar based on which barrier is hit first:
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import numpy.typing as npt
-import pandas as pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 def triple_barrier_labels(

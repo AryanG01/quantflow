@@ -7,8 +7,8 @@ source credibility caps, and staleness decay to neutral.
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 
 from packages.common.logging import get_logger
 
@@ -75,7 +75,7 @@ class SentimentScorer:
             Aggregate sentiment score in [-1, 1], 0 = neutral
         """
         if as_of is None:
-            as_of = datetime.now(timezone.utc)
+            as_of = datetime.now(UTC)
 
         cutoff = as_of - timedelta(hours=self._config.staleness_hours)
 

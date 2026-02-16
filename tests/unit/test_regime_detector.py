@@ -65,7 +65,7 @@ class TestRegimeDetector:
 
         # Last 200 bars are choppy data
         choppy_segment = regimes[400:]
-        choppy_count = sum(1 for r in choppy_segment if r == Regime.CHOPPY)
+        sum(1 for r in choppy_segment if r == Regime.CHOPPY)
         # HMM is probabilistic; choppy segment should be predominantly non-trending
         non_trending = sum(1 for r in choppy_segment if r != Regime.TRENDING)
         assert non_trending / len(choppy_segment) > 0.7

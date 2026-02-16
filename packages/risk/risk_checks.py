@@ -5,11 +5,14 @@ Safety-critical: bugs here = financial loss.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from packages.common.errors import KillSwitchError
 from packages.common.logging import get_logger
-from packages.common.types import PortfolioSnapshot, Signal
+
+if TYPE_CHECKING:
+    from packages.common.types import PortfolioSnapshot, Signal
 
 logger = get_logger(__name__)
 
@@ -83,7 +86,7 @@ class RiskChecker:
 
         # Staleness check
         if data_timestamp is not None:
-            age_minutes = (datetime.now(timezone.utc) - data_timestamp).total_seconds() / 60
+            age_minutes = (datetime.now(UTC) - data_timestamp).total_seconds() / 60
             if age_minutes > self._staleness_threshold_minutes:
                 return False, (
                     f"Data is {age_minutes:.0f} min old, "

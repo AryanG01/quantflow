@@ -6,13 +6,17 @@ Ensures strict temporal separation between train and test sets.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 import numpy.typing as npt
-import pandas as pd
 
 from packages.common.logging import get_logger
-from packages.models.interfaces import ModelPredictor
+
+if TYPE_CHECKING:
+    import pandas as pd
+
+    from packages.models.interfaces import ModelPredictor
 
 logger = get_logger(__name__)
 

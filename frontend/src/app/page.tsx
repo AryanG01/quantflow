@@ -8,6 +8,7 @@ import { SignalPanel } from "@/components/SignalPanel";
 import { PositionsTable } from "@/components/PositionsTable";
 import { RiskPanel } from "@/components/RiskPanel";
 import { RegimeBadge } from "@/components/RegimeBadge";
+import { EquityChart } from "@/components/EquityChart";
 
 function formatCurrency(n: number): string {
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
@@ -27,6 +28,7 @@ export default function Dashboard() {
   const { data: positions } = usePolling(useCallback(() => api.positions(), []), 5000);
   const { data: risk } = usePolling(useCallback(() => api.risk(), []), 5000);
   const { data: regime } = usePolling(useCallback(() => api.regime(), []), 5000);
+  const { data: equityHistory } = usePolling(useCallback(() => api.equityHistory(), []), 15000);
 
   const isConnected = health?.status === "ok";
 
@@ -95,6 +97,7 @@ export default function Dashboard() {
         {/* Left column: Signals + Positions */}
         <div className="lg:col-span-2 space-y-4">
           <SignalPanel signals={signals || []} />
+          <EquityChart data={equityHistory || []} />
           <PositionsTable positions={positions || []} />
 
           {/* System Info */}

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -13,7 +13,7 @@ from packages.risk.risk_checks import RiskChecker
 
 def _make_portfolio(drawdown: float = 0.0, equity: float = 100_000.0) -> PortfolioSnapshot:
     return PortfolioSnapshot(
-        time=datetime.now(timezone.utc),
+        time=datetime.now(UTC),
         equity=equity,
         cash=equity,
         positions_value=0.0,
@@ -25,7 +25,7 @@ def _make_portfolio(drawdown: float = 0.0, equity: float = 100_000.0) -> Portfol
 
 def _make_signal() -> Signal:
     return Signal(
-        time=datetime.now(timezone.utc),
+        time=datetime.now(UTC),
         symbol="BTC/USDT",
         direction=Direction.LONG,
         strength=0.5,
@@ -74,7 +74,7 @@ class TestRiskChecks:
     def test_stale_data_rejected(self) -> None:
         """Stale data should be rejected."""
         checker = RiskChecker(staleness_threshold_minutes=30)
-        old_time = datetime.now(timezone.utc) - timedelta(minutes=45)
+        old_time = datetime.now(UTC) - timedelta(minutes=45)
         approved, reason = checker.check_pre_trade(
             _make_signal(), _make_portfolio(), trade_value_usd=5000.0, data_timestamp=old_time
         )

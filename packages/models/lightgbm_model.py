@@ -8,15 +8,18 @@ serves as an uncertainty measure for position sizing.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 import lightgbm as lgb
 import numpy as np
 import numpy.typing as npt
-import pandas as pd
 
 from packages.common.types import PredictionResult
 from packages.models.interfaces import ModelPredictor
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 class LightGBMQuantileModel(ModelPredictor):
@@ -90,7 +93,7 @@ class LightGBMQuantileModel(ModelPredictor):
         for q, model in self._models.items():
             q_preds[q] = model.predict(X).astype(np.float64)
 
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         results = []
         for i in range(len(X)):
             quantiles = {f"q{int(q * 100)}": float(q_preds[q][i]) for q in self._quantiles}

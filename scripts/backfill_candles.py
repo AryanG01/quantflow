@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import click
 import sqlalchemy as sa
 
 from packages.common.config import load_config
-from packages.common.logging import setup_logging, get_logger
+from packages.common.logging import get_logger, setup_logging
 from packages.data_ingestion.backfill import backfill_candles
 from packages.data_ingestion.binance_adapter import BinanceAdapter
 
@@ -36,7 +36,7 @@ def main(
     timeframe = cfg.universe.timeframe
 
     engine = sa.create_engine(cfg.database.url)
-    start = datetime.now(timezone.utc) - timedelta(days=lookback_days)
+    start = datetime.now(UTC) - timedelta(days=lookback_days)
 
     async def run() -> None:
         exchange_cfg = cfg.exchanges.get(exchange)

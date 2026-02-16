@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 
-import numpy as np
-import numpy.typing as npt
-import pandas as pd
+if TYPE_CHECKING:
+    import numpy as np
+    import numpy.typing as npt
+    import pandas as pd
 
-from packages.common.types import PredictionResult
+    from packages.common.types import PredictionResult
 
 
 class ModelPredictor(ABC):

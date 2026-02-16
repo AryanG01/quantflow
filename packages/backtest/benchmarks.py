@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import numpy as np
 import numpy.typing as npt
-import pandas as pd
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 def buy_and_hold(candles: pd.DataFrame) -> npt.NDArray[np.float64]:

@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
-from sqlalchemy.engine import Engine
 
 from packages.common.types import PortfolioSnapshot
 from packages.risk.interfaces import PortfolioStateStore
+
+if TYPE_CHECKING:
+    from sqlalchemy.engine import Engine
 
 PORTFOLIO_TABLE = sa.Table(
     "portfolio_snapshots",
@@ -44,7 +47,7 @@ class DBPortfolioStateStore(PortfolioStateStore):
 
         if row is None:
             return PortfolioSnapshot(
-                time=datetime.now(timezone.utc),
+                time=datetime.now(UTC),
                 equity=self._initial_equity,
                 cash=self._initial_equity,
                 positions_value=0.0,

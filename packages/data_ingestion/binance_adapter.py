@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 import ccxt.async_support as ccxt
 
-from packages.common.config import ExchangeConfig
 from packages.common.errors import ExchangeError
 from packages.common.logging import get_logger
 from packages.common.types import Candle
 from packages.data_ingestion.interfaces import MarketDataProvider
 from packages.data_ingestion.rate_limiter import TokenBucketRateLimiter
+
+if TYPE_CHECKING:
+    from packages.common.config import ExchangeConfig
 
 logger = get_logger(__name__)
 
@@ -50,16 +53,16 @@ class BinanceAdapter(MarketDataProvider):
 
         candles = []
         for row in ohlcv:
-            ts_ms, o, h, l, c, v = row[0], row[1], row[2], row[3], row[4], row[5]
+            ts_ms, o, h, lo, c, v = row[0], row[1], row[2], row[3], row[4], row[5]
             candles.append(
                 Candle(
-                    time=datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc),
+                    time=datetime.fromtimestamp(ts_ms / 1000, tz=UTC),
                     exchange="binance",
                     symbol=symbol,
                     timeframe=timeframe,
                     open=float(o),
                     high=float(h),
-                    low=float(l),
+                    low=float(lo),
                     close=float(c),
                     volume=float(v),
                 )

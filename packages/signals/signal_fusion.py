@@ -6,7 +6,7 @@ get which weights. Choppy regime also scales down position size.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from packages.common.config import RegimeWeights, SignalFusionConfig
 from packages.common.types import Direction, Regime, Signal
@@ -81,7 +81,7 @@ class RegimeGatedMoE(SignalCombiner):
             direction = Direction.FLAT
 
         return Signal(
-            time=datetime.now(timezone.utc),
+            time=datetime.now(UTC),
             symbol=symbol,
             direction=direction,
             strength=strength,

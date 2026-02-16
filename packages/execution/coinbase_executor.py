@@ -2,15 +2,18 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 import ccxt.async_support as ccxt
 
-from packages.common.config import ExchangeConfig
 from packages.common.errors import ExchangeError
 from packages.common.logging import get_logger
 from packages.common.types import Order, OrderStatus, OrderType
 from packages.execution.interfaces import ExecutionAdapter
+
+if TYPE_CHECKING:
+    from packages.common.config import ExchangeConfig
 
 logger = get_logger(__name__)
 
@@ -77,7 +80,7 @@ class CoinbaseExecutor(ExecutionAdapter):
             result = await self._exchange.fetch_order(order_id, symbol)
             return Order(
                 id=str(result["id"]),
-                time=datetime.fromtimestamp(result["timestamp"] / 1000, tz=timezone.utc),
+                time=datetime.fromtimestamp(result["timestamp"] / 1000, tz=UTC),
                 symbol=symbol,
                 exchange="coinbase",
                 side=result["side"],

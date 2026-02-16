@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from typing import TYPE_CHECKING
 
 import pandas as pd
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.engine import Engine
+
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from sqlalchemy.engine import Engine
 
 FEATURES_TABLE = sa.Table(
     "features",

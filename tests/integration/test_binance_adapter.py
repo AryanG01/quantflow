@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -18,7 +18,7 @@ class TestBinanceAdapter:
         config = ExchangeConfig(sandbox=False, rate_limit_rpm=1200)
         adapter = BinanceAdapter(config)
 
-        since = datetime.now(timezone.utc) - timedelta(days=3)
+        since = datetime.now(UTC) - timedelta(days=3)
 
         async def run() -> None:
             try:

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import numpy as np
 import numpy.typing as npt
-import pandas as pd
 from hmmlearn.hmm import GaussianHMM
 
 from packages.common.logging import get_logger

@@ -6,7 +6,7 @@ to the frontend dashboard.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import FastAPI
@@ -95,7 +95,7 @@ class EquityCurvePoint(BaseModel):
 
 # ── In-memory state (replaced by DB queries in production) ───
 
-_start_time = datetime.now(timezone.utc)
+_start_time = datetime.now(UTC)
 _latest_signals: dict[str, SignalResponse] = {}
 _positions: list[PositionResponse] = []
 _portfolio: PortfolioResponse | None = None
@@ -110,7 +110,7 @@ _backtest_results: list[BacktestSummary] = []
 
 @app.get("/api/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     return HealthResponse(
         status="ok",
         timestamp=now.isoformat(),

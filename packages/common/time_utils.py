@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 TIMEFRAME_SECONDS: dict[str, int] = {
     "1m": 60,
@@ -16,14 +16,14 @@ TIMEFRAME_SECONDS: dict[str, int] = {
 
 def utc_now() -> datetime:
     """Current UTC time."""
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def to_utc(dt: datetime) -> datetime:
     """Ensure a datetime is UTC-aware."""
     if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
 
 
 def align_to_bar(dt: datetime, timeframe: str) -> datetime:
@@ -36,7 +36,7 @@ def align_to_bar(dt: datetime, timeframe: str) -> datetime:
         raise ValueError(f"Unknown timeframe: {timeframe}")
 
     dt = to_utc(dt)
-    epoch = datetime(2000, 1, 1, tzinfo=timezone.utc)
+    epoch = datetime(2000, 1, 1, tzinfo=UTC)
     elapsed = (dt - epoch).total_seconds()
     aligned_elapsed = (elapsed // seconds) * seconds
     return epoch + timedelta(seconds=aligned_elapsed)

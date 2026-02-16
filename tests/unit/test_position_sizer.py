@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-
-import pytest
+from datetime import UTC, datetime
 
 from packages.common.types import Direction, PortfolioSnapshot, Regime, Signal
 from packages.risk.position_sizer import VolTargetPositionSizer
@@ -12,7 +10,7 @@ from packages.risk.position_sizer import VolTargetPositionSizer
 
 def _make_signal(strength: float = 0.5, confidence: float = 0.8) -> Signal:
     return Signal(
-        time=datetime.now(timezone.utc),
+        time=datetime.now(UTC),
         symbol="BTC/USDT",
         direction=Direction.LONG,
         strength=strength,
@@ -23,7 +21,7 @@ def _make_signal(strength: float = 0.5, confidence: float = 0.8) -> Signal:
 
 def _make_portfolio(equity: float = 100_000.0) -> PortfolioSnapshot:
     return PortfolioSnapshot(
-        time=datetime.now(timezone.utc),
+        time=datetime.now(UTC),
         equity=equity,
         cash=equity,
         positions_value=0.0,

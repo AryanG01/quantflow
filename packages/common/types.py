@@ -2,29 +2,29 @@
 
 from __future__ import annotations
 
-from datetime import datetime
-from enum import Enum
+from datetime import datetime  # noqa: TC003 — Pydantic needs this at runtime
+from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
 
-class Side(str, Enum):
+class Side(StrEnum):
     BUY = "buy"
     SELL = "sell"
 
 
-class Direction(str, Enum):
+class Direction(StrEnum):
     LONG = "long"
     SHORT = "short"
     FLAT = "flat"
 
 
-class OrderType(str, Enum):
+class OrderType(StrEnum):
     MARKET = "market"
     LIMIT = "limit"
 
 
-class OrderStatus(str, Enum):
+class OrderStatus(StrEnum):
     PENDING = "pending"
     FILLED = "filled"
     PARTIAL = "partial"
@@ -32,7 +32,7 @@ class OrderStatus(str, Enum):
     REJECTED = "rejected"
 
 
-class Regime(str, Enum):
+class Regime(StrEnum):
     TRENDING = "trending"
     MEAN_REVERTING = "mean_reverting"
     CHOPPY = "choppy"

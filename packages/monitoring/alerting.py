@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -34,7 +34,7 @@ class AlertManager:
 
     def evaluate_all(self) -> list[str]:
         """Evaluate all rules and return list of fired alert messages."""
-        now = datetime.now(timezone.utc)
+        now = datetime.now(UTC)
         fired = []
 
         for rule in self._rules:

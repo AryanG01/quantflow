@@ -178,10 +178,7 @@ class AppConfig(BaseModel):
 
 def load_config(config_path: str | Path | None = None) -> AppConfig:
     """Load config from YAML file with environment variable resolution."""
-    if config_path is None:
-        config_path = Path("config/default.yaml")
-    else:
-        config_path = Path(config_path)
+    config_path = Path("config/default.yaml") if config_path is None else Path(config_path)
 
     if config_path.exists():
         with open(config_path) as f:
