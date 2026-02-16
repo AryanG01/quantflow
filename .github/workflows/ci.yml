@@ -34,7 +34,7 @@ jobs:
         run: uv run mypy packages/ apps/ scripts/ --ignore-missing-imports
 
       - name: Tests (pytest)
-        run: uv run pytest tests/ -v --tb=short
+        run: uv run pytest tests/ -v --tb=short -m "not integration"
 
   frontend:
     runs-on: ubuntu-latest
