@@ -1,0 +1,108 @@
+universe:
+  symbols:
+    - BTC/USDT
+    - ETH/USDT
+    - SOL/USDT
+  timeframe: "4h"
+  lookback_days: 730  # 2 years
+
+features:
+  technical:
+    rsi_period: 14
+    atr_period: 14
+    bb_period: 20
+    bb_std: 2.0
+    vol_window: 24  # 24 bars = 4 days at 4h
+    vwap_period: 24
+  normalization:
+    method: rolling_zscore
+    window: 100
+    shift: 1  # prevent lookahead
+
+model:
+  type: lightgbm_quantile
+  quantiles: [0.1, 0.25, 0.5, 0.75, 0.9]
+  walk_forward:
+    train_bars: 1000
+    test_bars: 100
+    purge_bars: 3
+    embargo_bars: 2
+  labeling:
+    method: triple_barrier
+    profit_taking_pct: 0.03
+    stop_loss_pct: 0.015
+    max_holding_bars: 12
+
+regime:
+  model: gaussian_hmm
+  n_states: 3
+  features: [log_returns, realized_vol]
+  retrain_interval_days: 7
+  state_mapping:
+    trending: 0
+    mean_reverting: 1
+    choppy: 2
+
+signals:
+  fusion:
+    method: regime_gated_moe
+    regime_weights:
+      trending:
+        technical: 0.4
+        ml: 0.5
+        sentiment: 0.1
+      mean_reverting:
+        technical: 0.5
+        ml: 0.3
+        sentiment: 0.2
+      choppy:
+        technical: 0.3
+        ml: 0.3
+        sentiment: 0.4
+    choppy_scale: 0.3  # reduce position by 70% in choppy regime
+
+risk:
+  vol_target: 0.15  # 15% annualized
+  max_position_pct: 0.25
+  max_portfolio_leverage: 1.0
+  max_drawdown_pct: 0.15  # kill switch at -15%
+  max_concentration_pct: 0.30
+  min_trade_usd: 10.0
+  staleness_threshold_minutes: 30
+
+execution:
+  mode: paper  # paper | live
+  order_timeout_seconds: 120
+  max_retries: 3
+  slippage_model:
+    fixed_spread_bps: 5.0
+    linear_impact_bps: 2.0
+
+exchanges:
+  binance:
+    sandbox: true
+    rate_limit_rpm: 1200
+    fees_bps:
+      maker: 10.0
+      taker: 10.0
+  coinbase:
+    sandbox: true
+    rate_limit_rpm: 600
+    fees_bps:
+      maker: 40.0
+      taker: 60.0
+
+monitoring:
+  prometheus_port: 9090
+  alert_webhook_url: ""
+  drift_psi_threshold: 0.2
+
+database:
+  host: ${POSTGRES_HOST:localhost}
+  port: ${POSTGRES_PORT:5432}
+  name: ${POSTGRES_DB:trading}
+  user: ${POSTGRES_USER:trading}
+  password: ${POSTGRES_PASSWORD:changeme}
+
+redis:
+  url: ${REDIS_URL:redis://localhost:6379/0}
