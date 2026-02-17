@@ -22,12 +22,17 @@ export function SharedHeader() {
       </div>
       <div className="flex items-center gap-3 text-xs">
         <span className="text-[var(--color-text-muted)]">v{health?.version ?? "—"}</span>
+        {health?.db_connected && (
+          <span className="text-[var(--color-accent-cyan)] tabular-nums">
+            {health.candle_count.toLocaleString()} candles
+          </span>
+        )}
         <div className="flex items-center gap-1.5">
           <span
             className={`w-2 h-2 rounded-full ${isConnected ? "bg-emerald-400 pulse-dot" : "bg-red-400"}`}
           />
           <span className={isConnected ? "text-emerald-400" : "text-red-400"}>
-            {isConnected ? "LIVE" : "OFFLINE"}
+            {isConnected ? (health?.db_connected ? "DB LIVE" : "API ONLY") : "OFFLINE"}
           </span>
         </div>
       </div>

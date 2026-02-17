@@ -21,11 +21,15 @@ logger = get_logger(__name__)
 @click.option("--symbol", default=None, help="Single symbol to backfill (overrides config)")
 @click.option("--days", default=None, type=int, help="Lookback days (overrides config)")
 @click.option("--exchange", default="binance", type=click.Choice(["binance", "coinbase"]))
+@click.option(
+    "--sandbox/--no-sandbox", default=None, help="Override sandbox mode (default: use config)"
+)
 def main(
     config_path: str,
     symbol: str | None,
     days: int | None,
     exchange: str,
+    sandbox: bool | None,
 ) -> None:
     """Backfill historical candle data from exchange to TimescaleDB."""
     setup_logging()
@@ -43,6 +47,10 @@ def main(
         if exchange_cfg is None:
             logger.error("exchange_not_configured", exchange=exchange)
             return
+
+        # Override sandbox mode if explicitly specified
+        if sandbox is not None:
+            exchange_cfg = exchange_cfg.model_copy(update={"sandbox": sandbox})
 
         adapter = BinanceAdapter(exchange_cfg)
         try:

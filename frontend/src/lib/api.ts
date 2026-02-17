@@ -86,6 +86,8 @@ export interface HealthStatus {
   timestamp: string;
   version: string;
   uptime_seconds: number;
+  db_connected: boolean;
+  candle_count: number;
 }
 
 async function fetchJson<T>(path: string): Promise<T | null> {
