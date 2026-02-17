@@ -46,7 +46,6 @@
 - [x] Components: MetricCard, SignalPanel, PositionsTable, RiskPanel, RegimeBadge, EquityChart
 - [x] API client with polling hooks
 - [x] Proxies to FastAPI backend via Next.js rewrites (port 4000 → 8000)
-- [x] Builds cleanly
 
 ### Frontend Multi-Page Navigation ✅
 - [x] NavBar component with active-state highlighting (Dashboard, Trades, Backtest, Settings)
@@ -54,92 +53,114 @@
 - [x] **Trades page** — Filterable trade history table with PnL summary cards, regime color-coding
 - [x] **Backtest page** — Strategy comparison table ranked by Sharpe, methodology footer
 - [x] **Settings page** — Recursive config tree renderer with type-colored values (read-only)
-- [x] API endpoints: `/api/trades`, `/api/config` with demo data
-- [x] All 7 pages build cleanly
+
+### Real Database Integration ✅
+- [x] Docker: TimescaleDB + Redis running via docker-compose.dev.yml
+- [x] Migrations auto-run on container start (10 tables created)
+- [x] Backfilled 13,140 real candles from Binance (BTC/ETH/SOL, 2 years of 4h bars)
+- [x] API wired to TimescaleDB — queries DB first, falls back to demo data
+- [x] New endpoints: `/api/candles/{symbol}`, `/api/prices` (real market data)
+- [x] `/api/config` reads from real `config/default.yaml` (not hardcoded)
+- [x] `/api/health` shows `db_connected` status + `candle_count`
+- [x] Header shows DB connection status + candle count
+- [x] Backfill script supports `--no-sandbox` flag for real Binance data
 
 ### Testing ✅
 - [x] 72 unit/integration tests, all passing
-- [x] Test coverage: cost_model, metrics, technical, normalizer, labeling, walk_forward, regime_detector, signal_fusion, position_sizer, risk_checks, backtest_engine
 - [x] Integration test (Binance adapter) excluded from CI (geo-blocked on GitHub runners)
-
-### Repo + Infra ✅
-- [x] GitHub repo created: https://github.com/AryanG01/quantflow
-- [x] Initial commit pushed (CLAUDE.md excluded via .gitignore)
-- [x] README.md with full project description
-- [x] PROGRESS.md for tracking
-
-### Worker Pipeline ✅
-- [x] `apps/worker/tasks/signal_pipeline.py` — Full SignalPipeline class
-- [x] `apps/worker/main.py` — Worker class with DB engine, wired to SignalPipeline
 
 ### CI/CD Pipeline ✅
 - [x] `.github/workflows/ci.yml` — ruff check + ruff format + mypy + pytest + frontend build
-- [x] All 4 Python checks pass (lint, format, typecheck, tests)
-- [x] Frontend build check passes
-- [x] Integration tests excluded in CI with `-m "not integration"`
-
-### Lint + Type Cleanup ✅
-- [x] All ruff lint issues resolved (0 errors)
-- [x] All ruff format issues resolved
-- [x] All mypy type errors resolved (0 errors, strict mode)
-- [x] `(str, Enum)` migrated to `StrEnum` (Python 3.12)
-- [x] TC type-checking imports applied (with Pydantic runtime exceptions)
-- [x] ML naming convention (X, y) preserved via per-file ignores
-
-### API Demo Data ✅
-- [x] FastAPI generates demo data on startup (portfolio, signals, positions, equity curve, regime, risk)
-- [x] Dashboard shows populated data without needing Docker/DB
-- [x] CORS updated to include port 4000
+- [x] All checks pass on GitHub Actions
 
 ### Documentation ✅
-- [x] `HOW_IT_WORKS.md` — Beginner-friendly guide explaining all algorithms, features, and concepts
+- [x] `HOW_IT_WORKS.md` — Beginner-friendly guide explaining all algorithms
+- [x] `PROGRESS.md` — This file
 
 ---
 
-## Current State of the Website
+## Current State
 
-The dashboard is a **read-only monitoring panel**. It displays:
-- Portfolio metrics (equity, cash, PnL, drawdown)
-- Trading signals per symbol (direction, strength, confidence)
-- Open positions with unrealized PnL
-- Market regime (trending / mean-reverting / choppy)
-- Risk metrics (kill switch status, concentration, volatility)
-- Equity curve chart (90 days)
+**Website runs locally at http://localhost:4000** with 4 pages:
+- **Dashboard** (`/`) — Portfolio metrics, signals, equity chart, positions, risk, regime
+- **Trades** (`/trades`) — Filterable trade history with PnL summary
+- **Backtest** (`/backtest`) — Strategy comparison table
+- **Settings** (`/settings`) — Read-only config display
 
-**What it does NOT do yet:**
-- No manual trade placement from the UI
-- No wallet/exchange connection from the UI
-**Trading modes** (configured in `config/default.yaml`):
-- `paper` (default): Simulates trades with fake money
-- `live`: Connects to real Binance/Coinbase via API keys in `.env`
+**Backend API at http://localhost:8000** with 12 endpoints:
+- `/api/health`, `/api/signals`, `/api/portfolio`, `/api/positions`
+- `/api/risk`, `/api/regime`, `/api/equity-history`, `/api/backtest-results`
+- `/api/trades`, `/api/config`, `/api/candles/{symbol}`, `/api/prices`
 
-**To run with real data**, you need:
-1. Docker running: `docker compose -f docker-compose.dev.yml up -d`
-2. Backfill data: `PYTHONPATH=. uv run python scripts/backfill_candles.py`
-3. Start worker: `PYTHONPATH=. uv run python -m apps.worker.main`
-4. Start API: `uv run uvicorn apps.api.main:app --reload --port 8000`
-5. Start frontend: `cd frontend && npm run dev`
+**Database**: 13,140 real candles in TimescaleDB. Other tables (signals, positions, portfolio_snapshots, orders, risk_metrics) are empty — populated once the worker runs.
+
+**Data flow**: API queries DB first → if empty, serves demo data → frontend polls every 5-15s
+
+**What currently works with REAL data:**
+- Candle data (BTC/ETH/SOL 4h bars, 2 years)
+- Live prices from latest candles
+- Config from actual YAML file
+
+**What still uses DEMO data (until worker runs):**
+- Portfolio, signals, positions, risk metrics, equity curve, trades, regime, backtest results
+
+---
+
+## How to Run
+
+```bash
+# 1. Start database (requires Docker Desktop running)
+docker compose -f docker-compose.dev.yml up -d
+
+# 2. Backfill candles (only needed once — data persists in Docker volume)
+PYTHONPATH=. uv run python scripts/backfill_candles.py --no-sandbox
+
+# 3. Start API
+PYTHONPATH=. uv run uvicorn apps.api.main:app --reload --port 8000
+
+# 4. Start frontend
+cd frontend && npm run dev
+
+# Visit http://localhost:4000
+```
 
 ---
 
 ## Next Tasks (in priority order)
 
-### 1. Connect to real exchange data
-- Set up Docker (TimescaleDB + Redis)
-- Backfill historical candles from Binance
-- Run worker to generate live signals
+### 1. Make frontend dynamic (replace hardcoded/demo data)
+**Settings page** — Replace read-only config display with interactive controls:
+- Dropdowns to select symbols, timeframe, exchange
+- Sliders for risk params (vol_target, max_drawdown, max_position)
+- POST endpoint to save config changes
+- Live validation
 
-### 2. Manual trading controls
-- Add buy/sell buttons to the UI
-- API endpoints for manual order placement
+**Backtest page** — Make backtests runnable from the UI:
+- Form to select strategy, symbol, date range
+- POST endpoint to trigger backtest
+- Real-time progress indicator
+- Display actual results (not hardcoded)
+
+**Trades page** — Enable paper trading from the UI:
+- Buy/sell form with symbol, quantity, order type
+- POST endpoint for order placement
+- Real-time order status updates
+- Position management (close positions)
+
+### 2. Run worker for live signal generation
+- Start worker process to compute features → train models → generate signals
+- Signals, positions, portfolio snapshots populate in DB
+- Dashboard switches from demo to real data automatically
 
 ### 3. Exchange wallet connection
-- UI flow for entering API keys
+- UI flow for entering API keys securely
 - Connect to real Binance/Coinbase accounts
+- Switch between paper and live modes
 
-### 4. Deploy to cloud
-- Vercel for frontend
-- Docker on a VPS for backend + worker + DB
+### 4. Deploy to cloud (free hosting)
+- Frontend → Vercel (free tier)
+- Backend + DB → Railway or Render (free Postgres + containers)
+- Site stays up when laptop is closed
 
 ---
 
@@ -147,39 +168,30 @@ The dashboard is a **read-only monitoring panel**. It displays:
 
 ```
 QuantFlow/
-├── packages/           # Domain libraries
+├── packages/           # Domain libraries (Python)
 │   ├── common/         # Types, config, logging, errors
 │   ├── data_ingestion/ # Exchange adapters, backfill
 │   ├── features/       # Technical indicators, normalizer
 │   ├── models/         # LightGBM, labeling, walk-forward
-│   ├── signals/        # Regime detection, MoE fusion
-│   ├── risk/           # Position sizing, risk checks
-│   ├── execution/      # Order management, paper/live
+│   ├── signals/        # Regime detection, MoE fusion, sentiment
+│   ├── risk/           # Position sizing, risk checks, kill switch
+│   ├── execution/      # Order management, paper/live modes
 │   ├── backtest/       # Vectorized + event-driven engines
-│   └── monitoring/     # Prometheus, alerting, drift
+│   └── monitoring/     # Prometheus, alerting, drift detection
 ├── apps/
-│   ├── api/            # FastAPI backend (8 endpoints + demo data)
+│   ├── api/            # FastAPI backend (12 endpoints, DB-connected)
 │   └── worker/         # Scheduled pipeline tasks
-│       └── tasks/
-│           └── signal_pipeline.py  # Full pipeline orchestration
-├── frontend/           # Next.js dashboard (port 4000)
+├── frontend/           # Next.js 15 dashboard (port 4000)
 ├── scripts/            # CLI tools (backfill, backtest, ablation)
 ├── tests/              # 72 tests (unit + integration)
 ├── config/             # YAML config + Prometheus
-├── migrations/         # TimescaleDB schema
-├── HOW_IT_WORKS.md     # Beginner-friendly algorithm explanations
-└── docker-compose.yml  # Full stack deployment
+├── migrations/         # TimescaleDB schema (10 tables)
+└── docker-compose.dev.yml  # TimescaleDB + Redis
 ```
 
-## Key Design Decisions
-- **Regime-gated MoE**: Different signal weights per market regime (trending/mean-reverting/choppy)
-- **Quantile regression**: LightGBM predicts full distribution (5 quantiles) for uncertainty-aware sizing
-- **Triple-barrier labeling**: Labels based on trading outcomes, not arbitrary horizons
-- **Walk-forward with purge/embargo**: Strict temporal separation prevents data leakage
-- **Kill switch at -15% DD**: Non-negotiable safety mechanism
-- **Paper mode first**: All execution goes through paper trading before live capital
-
 ## Commits (latest first)
+- `f2e76f9` — Wire API to real TimescaleDB, add candles/prices endpoints
+- `01e8b60` — Update PROGRESS.md with frontend navigation milestone
 - `00836b2` — Add frontend navigation, trades/backtest/settings pages
 - `17d113a` — Add demo data, HOW_IT_WORKS docs, update PROGRESS tracking
 - `ef0f960` — Skip integration tests in CI (Binance geo-blocked)
