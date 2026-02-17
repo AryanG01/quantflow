@@ -10,14 +10,17 @@ from __future__ import annotations
 import random
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 import sqlalchemy as sa
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
-from packages.common.config import load_config
+from packages.common.config import AppConfig, load_config, save_config
 from packages.common.logging import get_logger
 
 logger = get_logger(__name__)
@@ -130,7 +133,7 @@ def _get_db() -> sa.engine.Engine | None:
     return _engine
 
 
-def _db_query(query: sa.Select) -> list[sa.Row] | None:
+def _db_query(query: Any) -> list[Any] | None:
     """Execute a DB query, returning None if DB is unavailable."""
     engine = _get_db()
     if engine is None:
@@ -469,7 +472,7 @@ def _get_candle_count() -> int:
     rows = _db_query(query)
     if not rows:
         return 0
-    return rows[0][0]
+    return int(rows[0][0])
 
 
 def _get_db_signals() -> list[SignalResponse] | None:
@@ -601,7 +604,7 @@ def _get_db_trades() -> list[TradeResponse] | None:
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):  # noqa: ARG001
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
     """Initialize DB connection on startup."""
     _get_db()
     yield
@@ -681,7 +684,7 @@ async def get_regime() -> RegimeResponse | None:
             confidence=current.confidence,
             history=[{"timestamp": s.timestamp, "regime": s.regime} for s in db_signals],
         )
-    return _demo["regime"]
+    return cast("RegimeResponse", _demo["regime"])
 
 
 @app.get("/api/equity-history", response_model=list[EquityCurvePoint])
@@ -692,7 +695,7 @@ async def get_equity_history() -> list[EquityCurvePoint]:
 @app.get("/api/backtest-results", response_model=list[BacktestSummary])
 async def get_backtest_results() -> list[BacktestSummary]:
     # Backtest results are not stored in DB — always from demo/cache
-    return _demo["backtest_results"]
+    return cast("list[BacktestSummary]", _demo["backtest_results"])
 
 
 @app.get("/api/trades", response_model=list[TradeResponse])
@@ -702,6 +705,38 @@ async def get_trades() -> list[TradeResponse]:
 
 @app.get("/api/config", response_model=ConfigResponse)
 async def get_config() -> ConfigResponse:
+    return ConfigResponse(
+        universe=_cfg.universe.model_dump(),
+        risk=_cfg.risk.model_dump(),
+        execution=_cfg.execution.model_dump(),
+        features=_cfg.features.model_dump(),
+        model=_cfg.model.model_dump(),
+        regime=_cfg.regime.model_dump(),
+    )
+
+
+class ConfigUpdateRequest(BaseModel):
+    universe: dict[str, Any] | None = None
+    risk: dict[str, Any] | None = None
+    execution: dict[str, Any] | None = None
+
+
+@app.patch("/api/config", response_model=ConfigResponse)
+async def update_config(body: ConfigUpdateRequest) -> ConfigResponse:
+    """Update editable config sections and persist to YAML."""
+    global _cfg
+
+    current = _cfg.model_dump()
+    if body.universe is not None:
+        current["universe"].update(body.universe)
+    if body.risk is not None:
+        current["risk"].update(body.risk)
+    if body.execution is not None:
+        current["execution"].update(body.execution)
+
+    _cfg = AppConfig.model_validate(current)
+    save_config(_cfg)
+
     return ConfigResponse(
         universe=_cfg.universe.model_dump(),
         risk=_cfg.risk.model_dump(),
@@ -742,3 +777,183 @@ async def get_candles(symbol: str, limit: int = 500) -> list[CandleResponse]:
 async def get_prices() -> dict[str, float]:
     """Get latest prices for all symbols."""
     return _get_latest_prices()
+
+
+# ── Backtest endpoints ────────────────────────────────────────
+
+
+class BacktestRunRequest(BaseModel):
+    symbol: str = "BTC/USDT"
+    strategy: str = "buy_and_hold"
+    lookback_days: int = 365
+    initial_capital: float = 100_000.0
+
+
+_backtest_history: list[BacktestSummary] = []
+
+
+@app.post("/api/backtest/run", response_model=BacktestSummary)
+async def run_backtest(body: BacktestRunRequest) -> BacktestSummary:
+    """Run a backtest with real candle data from the database."""
+    import pandas as pd
+
+    from packages.backtest.benchmarks import buy_and_hold, ma_crossover, mean_reversion
+    from packages.backtest.engine_vectorized import BacktestConfig, run_vectorized_backtest
+
+    strategy_map: dict[str, Any] = {
+        "buy_and_hold": buy_and_hold,
+        "ma_crossover": ma_crossover,
+        "mean_reversion": mean_reversion,
+    }
+
+    signal_fn = strategy_map.get(body.strategy)
+    if signal_fn is None:
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=400, detail=f"Unknown strategy: {body.strategy}")
+
+    # Fetch candles from DB
+    cutoff = datetime.now(UTC) - timedelta(days=body.lookback_days)
+    query = (
+        sa.select(_candles)
+        .where(_candles.c.symbol == body.symbol)
+        .where(_candles.c.time >= cutoff)
+        .order_by(_candles.c.time)
+    )
+    rows = _db_query(query)
+    if not rows or len(rows) < 50:
+        from fastapi import HTTPException
+
+        raise HTTPException(
+            status_code=400,
+            detail=f"Not enough candle data for {body.symbol} (need 50+, got {len(rows) if rows else 0})",
+        )
+
+    df = pd.DataFrame(
+        [
+            {
+                "time": r.time,
+                "open": r.open,
+                "high": r.high,
+                "low": r.low,
+                "close": r.close,
+                "volume": r.volume,
+            }
+            for r in rows
+        ]
+    )
+
+    bt_config = BacktestConfig(initial_capital=body.initial_capital)
+    result = run_vectorized_backtest(df, signal_fn, bt_config)
+
+    strategy_labels = {
+        "buy_and_hold": "Buy & Hold",
+        "ma_crossover": "MA Crossover (20/50)",
+        "mean_reversion": "Mean Reversion (z-score)",
+    }
+
+    summary = BacktestSummary(
+        strategy=strategy_labels.get(body.strategy, body.strategy),
+        total_return=round(result.metrics.total_return, 4),
+        sharpe_ratio=round(result.metrics.sharpe_ratio, 3),
+        max_drawdown=round(result.metrics.max_drawdown, 4),
+        total_trades=result.metrics.total_trades,
+        hit_rate=round(result.metrics.hit_rate, 4),
+    )
+
+    _backtest_history.append(summary)
+    return summary
+
+
+@app.get("/api/backtest/history", response_model=list[BacktestSummary])
+async def get_backtest_history() -> list[BacktestSummary]:
+    """Get history of backtest runs from this session."""
+    return _backtest_history
+
+
+# ── Order endpoints ───────────────────────────────────────────
+
+
+class OrderCreateRequest(BaseModel):
+    symbol: str
+    side: str  # "buy" or "sell"
+    quantity: float
+    order_type: str = "market"
+    price: float | None = None
+
+
+@app.post("/api/orders", response_model=TradeResponse)
+async def place_order(body: OrderCreateRequest) -> TradeResponse:
+    """Place a paper trading order."""
+    from packages.common.types import OrderType, Side
+    from packages.execution.order_manager import OrderManager
+
+    # Get latest price for market orders
+    prices = _get_latest_prices()
+    latest_price = prices.get(body.symbol, 0.0)
+
+    if body.order_type == "market" and latest_price <= 0:
+        from fastapi import HTTPException
+
+        raise HTTPException(
+            status_code=400,
+            detail=f"No price data available for {body.symbol}",
+        )
+
+    order_mgr = OrderManager(paper_mode=True)
+
+    side = Side.BUY if body.side.lower() == "buy" else Side.SELL
+    order_type = OrderType.LIMIT if body.order_type.lower() == "limit" else OrderType.MARKET
+
+    # For market orders, inject latest price so paper fill has a real price
+    price = body.price if order_type == OrderType.LIMIT else latest_price
+
+    order = await order_mgr.submit(
+        symbol=body.symbol,
+        side=side,
+        quantity=body.quantity,
+        order_type=order_type,
+        price=price,
+    )
+
+    # Persist to DB if available
+    engine = _get_db()
+    if engine is not None:
+        try:
+            with engine.connect() as conn:
+                conn.execute(
+                    _orders_table.insert().values(
+                        id=order.id,
+                        time=order.time,
+                        symbol=order.symbol,
+                        exchange=order.exchange,
+                        side=order.side.value,
+                        order_type=order.order_type.value,
+                        quantity=order.quantity,
+                        price=price,
+                        status=order.status.value,
+                        filled_qty=order.filled_qty,
+                        avg_fill_price=order.avg_fill_price,
+                        fees=order.fees,
+                        signal_id=order.signal_id,
+                    )
+                )
+                conn.commit()
+        except Exception as e:
+            logger.warning("order_persist_failed", error=str(e))
+
+    fill_price = order.avg_fill_price or price or 0.0
+    fees = round(fill_price * order.quantity * 0.001, 2)
+
+    return TradeResponse(
+        id=order.id,
+        timestamp=order.time.isoformat(),
+        symbol=order.symbol,
+        side=order.side.value,
+        quantity=order.quantity,
+        price=round(fill_price, 2),
+        fees=fees,
+        pnl=0.0,
+        signal_strength=0.0,
+        regime="unknown",
+    )

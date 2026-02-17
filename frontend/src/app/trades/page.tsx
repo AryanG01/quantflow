@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api, Trade } from "@/lib/api";
 import { usePolling } from "@/hooks/usePolling";
 
@@ -26,11 +26,73 @@ const regimeColors: Record<string, string> = {
   choppy: "text-[var(--color-regime-choppy)]",
 };
 
+const SYMBOLS = ["BTC/USDT", "ETH/USDT", "SOL/USDT"];
+
 export default function TradesPage() {
   const { data: trades } = usePolling(useCallback(() => api.trades(), []), 10000);
   const [filter, setFilter] = useState<string>("all");
 
-  const filtered = (trades || []).filter((t: Trade) => {
+  // Order entry state
+  const [orderSymbol, setOrderSymbol] = useState("BTC/USDT");
+  const [orderSide, setOrderSide] = useState<"buy" | "sell">("buy");
+  const [orderQty, setOrderQty] = useState("");
+  const [orderType, setOrderType] = useState<"market" | "limit">("market");
+  const [limitPrice, setLimitPrice] = useState("");
+  const [placing, setPlacing] = useState(false);
+  const [orderError, setOrderError] = useState<string | null>(null);
+  const [orderSuccess, setOrderSuccess] = useState<string | null>(null);
+  const [localTrades, setLocalTrades] = useState<Trade[]>([]);
+  const [prices, setPrices] = useState<Record<string, number>>({});
+
+  // Poll prices for live display
+  useEffect(() => {
+    const fetchPrices = async () => {
+      const p = await api.prices();
+      if (p) setPrices(p);
+    };
+    fetchPrices();
+    const id = setInterval(fetchPrices, 5000);
+    return () => clearInterval(id);
+  }, []);
+
+  const handlePlaceOrder = async () => {
+    const qty = parseFloat(orderQty);
+    if (!qty || qty <= 0) {
+      setOrderError("Enter a valid quantity");
+      return;
+    }
+    if (orderType === "limit" && (!limitPrice || parseFloat(limitPrice) <= 0)) {
+      setOrderError("Enter a valid limit price");
+      return;
+    }
+
+    setPlacing(true);
+    setOrderError(null);
+    setOrderSuccess(null);
+
+    const result = await api.placeOrder({
+      symbol: orderSymbol,
+      side: orderSide,
+      quantity: qty,
+      order_type: orderType,
+      price: orderType === "limit" ? parseFloat(limitPrice) : undefined,
+    });
+
+    setPlacing(false);
+    if (result) {
+      setLocalTrades((prev) => [result, ...prev]);
+      setOrderSuccess(`${orderSide.toUpperCase()} ${qty} ${orderSymbol} filled @ ${formatCurrency(result.price)}`);
+      setOrderQty("");
+      setLimitPrice("");
+      setTimeout(() => setOrderSuccess(null), 4000);
+    } else {
+      setOrderError("Order failed — no price data available for this symbol.");
+    }
+  };
+
+  const allTrades = [...localTrades, ...(trades || [])];
+
+  const filtered = allTrades.filter((t: Trade) => {
     if (filter === "all") return true;
     if (filter === "winners") return t.pnl > 0;
     if (filter === "losers") return t.pnl < 0;
@@ -43,6 +105,138 @@ export default function TradesPage() {
 
   return (
     <>
+      {/* Order Entry Panel */}
+      <div className="card-glow bg-[var(--color-bg-card)] rounded-sm p-4 mb-4 animate-fade-in">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)]">
+            Place Order
+          </h2>
+          <span className="text-[10px] px-2 py-0.5 rounded-sm bg-[var(--color-accent-green)]/15 text-[var(--color-accent-green)] border border-[var(--color-accent-green)]/20">
+            Paper Mode
+          </span>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-6 gap-3 items-end">
+          {/* Symbol */}
+          <div>
+            <label className="text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] block mb-1.5">Symbol</label>
+            <select
+              value={orderSymbol}
+              onChange={(e) => setOrderSymbol(e.target.value)}
+              className="w-full bg-[var(--color-bg-main)] border border-[var(--color-border)] rounded-sm px-3 py-1.5 text-xs text-[var(--color-text-primary)] focus:border-[var(--color-accent-cyan)] outline-none"
+            >
+              {SYMBOLS.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+            {prices[orderSymbol] && (
+              <span className="text-[10px] text-[var(--color-text-muted)] mt-0.5 block tabular-nums">
+                {formatCurrency(prices[orderSymbol])}
+              </span>
+            )}
+          </div>
+
+          {/* Side */}
+          <div>
+            <label className="text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] block mb-1.5">Side</label>
+            <div className="flex gap-1">
+              <button
+                onClick={() => setOrderSide("buy")}
+                className={`flex-1 px-3 py-1.5 text-[11px] rounded-sm transition-colors ${
+                  orderSide === "buy"
+                    ? "bg-[var(--color-accent-green)]/20 text-[var(--color-accent-green)] border border-[var(--color-accent-green)]/30"
+                    : "border border-[var(--color-border)] text-[var(--color-text-muted)]"
+                }`}
+              >
+                BUY
+              </button>
+              <button
+                onClick={() => setOrderSide("sell")}
+                className={`flex-1 px-3 py-1.5 text-[11px] rounded-sm transition-colors ${
+                  orderSide === "sell"
+                    ? "bg-[var(--color-accent-red)]/20 text-[var(--color-accent-red)] border border-[var(--color-accent-red)]/30"
+                    : "border border-[var(--color-border)] text-[var(--color-text-muted)]"
+                }`}
+              >
+                SELL
+              </button>
+            </div>
+          </div>
+
+          {/* Quantity */}
+          <div>
+            <label className="text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] block mb-1.5">Quantity</label>
+            <input
+              type="number"
+              value={orderQty}
+              onChange={(e) => setOrderQty(e.target.value)}
+              placeholder="0.01"
+              step="any"
+              min="0"
+              className="w-full bg-[var(--color-bg-main)] border border-[var(--color-border)] rounded-sm px-3 py-1.5 text-xs text-[var(--color-text-primary)] tabular-nums focus:border-[var(--color-accent-cyan)] outline-none"
+            />
+          </div>
+
+          {/* Order Type */}
+          <div>
+            <label className="text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] block mb-1.5">Type</label>
+            <select
+              value={orderType}
+              onChange={(e) => setOrderType(e.target.value as "market" | "limit")}
+              className="w-full bg-[var(--color-bg-main)] border border-[var(--color-border)] rounded-sm px-3 py-1.5 text-xs text-[var(--color-text-primary)] focus:border-[var(--color-accent-cyan)] outline-none"
+            >
+              <option value="market">Market</option>
+              <option value="limit">Limit</option>
+            </select>
+          </div>
+
+          {/* Limit Price (conditional) */}
+          <div>
+            <label className="text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] block mb-1.5">
+              {orderType === "limit" ? "Limit Price" : "Est. Price"}
+            </label>
+            {orderType === "limit" ? (
+              <input
+                type="number"
+                value={limitPrice}
+                onChange={(e) => setLimitPrice(e.target.value)}
+                placeholder="0.00"
+                step="any"
+                min="0"
+                className="w-full bg-[var(--color-bg-main)] border border-[var(--color-border)] rounded-sm px-3 py-1.5 text-xs text-[var(--color-text-primary)] tabular-nums focus:border-[var(--color-accent-cyan)] outline-none"
+              />
+            ) : (
+              <div className="w-full border border-[var(--color-border)] rounded-sm px-3 py-1.5 text-xs text-[var(--color-text-muted)] tabular-nums bg-[var(--color-bg-main)]/50">
+                {prices[orderSymbol] ? formatCurrency(prices[orderSymbol]) : "—"}
+              </div>
+            )}
+          </div>
+
+          {/* Submit */}
+          <div>
+            <button
+              onClick={handlePlaceOrder}
+              disabled={placing}
+              className={`w-full px-4 py-1.5 text-[11px] rounded-sm transition-colors disabled:opacity-50 ${
+                orderSide === "buy"
+                  ? "bg-[var(--color-accent-green)]/20 text-[var(--color-accent-green)] border border-[var(--color-accent-green)]/30 hover:bg-[var(--color-accent-green)]/30"
+                  : "bg-[var(--color-accent-red)]/20 text-[var(--color-accent-red)] border border-[var(--color-accent-red)]/30 hover:bg-[var(--color-accent-red)]/30"
+              }`}
+            >
+              {placing ? "Placing..." : "Place Order"}
+            </button>
+          </div>
+        </div>
+
+        {/* Feedback */}
+        {orderError && (
+          <p className="text-[11px] text-[var(--color-accent-red)] mt-2">{orderError}</p>
+        )}
+        {orderSuccess && (
+          <p className="text-[11px] text-[var(--color-accent-green)] mt-2 animate-fade-in">{orderSuccess}</p>
+        )}
+      </div>
+
       {/* Summary Cards */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4 stagger">
         <div className="card-glow bg-[var(--color-bg-card)] rounded-sm px-4 py-3">

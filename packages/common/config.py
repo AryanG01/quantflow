@@ -176,6 +176,28 @@ class AppConfig(BaseModel):
     redis: RedisConfig = Field(default_factory=RedisConfig)
 
 
+def save_config(config: AppConfig, config_path: str | Path | None = None) -> None:
+    """Save config to YAML file, preserving env-var placeholders for DB/Redis."""
+    config_path = Path("config/default.yaml") if config_path is None else Path(config_path)
+
+    # Read existing raw YAML to preserve env-var patterns
+    existing_raw: dict[str, Any] = {}
+    if config_path.exists():
+        with open(config_path) as f:
+            existing_raw = yaml.safe_load(f) or {}
+
+    dumped = config.model_dump()
+
+    # Preserve database/redis sections from original file (they use ${VAR:default})
+    for key in ("database", "redis"):
+        if key in existing_raw:
+            dumped[key] = existing_raw[key]
+
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(config_path, "w") as f:
+        yaml.dump(dumped, f, default_flow_style=False, sort_keys=False)
+
+
 def load_config(config_path: str | Path | None = None) -> AppConfig:
     """Load config from YAML file with environment variable resolution."""
     config_path = Path("config/default.yaml") if config_path is None else Path(config_path)

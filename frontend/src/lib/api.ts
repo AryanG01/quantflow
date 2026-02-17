@@ -90,9 +90,54 @@ export interface HealthStatus {
   candle_count: number;
 }
 
+export interface BacktestRunRequest {
+  symbol: string;
+  strategy: string;
+  lookback_days?: number;
+  initial_capital?: number;
+}
+
+export interface OrderRequest {
+  symbol: string;
+  side: "buy" | "sell";
+  quantity: number;
+  order_type?: "market" | "limit";
+  price?: number;
+}
+
 async function fetchJson<T>(path: string): Promise<T | null> {
   try {
     const res = await fetch(`${API_BASE}${path}`, { cache: "no-store" });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+async function postJson<T>(path: string, body: unknown): Promise<T | null> {
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+async function patchJson<T>(path: string, body: unknown): Promise<T | null> {
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      cache: "no-store",
+    });
     if (!res.ok) return null;
     return await res.json();
   } catch {
@@ -111,4 +156,11 @@ export const api = {
   backtestResults: () => fetchJson<BacktestResult[]>("/backtest-results"),
   trades: () => fetchJson<Trade[]>("/trades"),
   config: () => fetchJson<SystemConfig>("/config"),
+  prices: () => fetchJson<Record<string, number>>("/prices"),
+  updateConfig: (body: Partial<SystemConfig>) =>
+    patchJson<SystemConfig>("/config", body),
+  runBacktest: (body: BacktestRunRequest) =>
+    postJson<BacktestResult>("/backtest/run", body),
+  placeOrder: (body: OrderRequest) =>
+    postJson<Trade>("/orders", body),
 };
