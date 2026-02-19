@@ -1,0 +1,17 @@
+{
+  "model_id": "lightgbm_latest",
+  "model_type": "lightgbm_quantile",
+  "created_at": "2026-02-19T11:53:04.389487+00:00",
+  "train_metrics": {
+    "n_samples": 1075
+  },
+  "feature_names": [
+    "log_returns",
+    "rsi",
+    "atr",
+    "bb_pct_b",
+    "vwap_deviation",
+    "realized_vol"
+  ],
+  "config": {}
+}
