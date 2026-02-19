@@ -7,6 +7,7 @@ back to demo data otherwise.
 
 from __future__ import annotations
 
+import math
 import random
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
@@ -453,6 +454,9 @@ _demo = _generate_demo_data()
 # ── DB query helpers ─────────────────────────────────────────
 
 
+_DEMO_PRICES = {"BTC/USDT": 98_150.0, "ETH/USDT": 3_380.0, "SOL/USDT": 182.0}
+
+
 def _get_latest_prices() -> dict[str, float]:
     """Get latest close price per symbol from candles."""
     query = (
@@ -462,8 +466,41 @@ def _get_latest_prices() -> dict[str, float]:
     )
     rows = _db_query(query)
     if not rows:
-        return {}
+        return dict(_DEMO_PRICES)
     return {row.symbol: row.close for row in rows}
+
+
+def _generate_demo_candles(symbol: str, lookback_days: int) -> list[dict[str, Any]]:
+    """Generate synthetic OHLCV candles using a GBM random walk."""
+    rng = random.Random(hash(symbol) + lookback_days)
+    base_price = _DEMO_PRICES.get(symbol, 50_000.0)
+    n_bars = lookback_days * 6  # 4h candles
+    now = datetime.now(UTC)
+
+    mu = 0.0002  # slight upward drift per bar
+    sigma = 0.015  # volatility per bar
+    price = base_price * 0.85  # start lower so chart trends up
+
+    candles = []
+    for i in range(n_bars):
+        ret = mu + sigma * rng.gauss(0, 1)
+        price *= math.exp(ret)
+        high = price * (1 + abs(rng.gauss(0, 0.005)))
+        low = price * (1 - abs(rng.gauss(0, 0.005)))
+        open_p = price * (1 + rng.gauss(0, 0.003))
+        volume = rng.uniform(100, 5000) * (base_price / 1000)
+        ts = now - timedelta(hours=(n_bars - i) * 4)
+        candles.append(
+            {
+                "time": ts,
+                "open": round(open_p, 2),
+                "high": round(high, 2),
+                "low": round(low, 2),
+                "close": round(price, 2),
+                "volume": round(volume, 2),
+            }
+        )
+    return candles
 
 
 def _get_candle_count() -> int:
@@ -665,7 +702,13 @@ async def get_portfolio() -> PortfolioResponse | None:
 
 @app.get("/api/positions", response_model=list[PositionResponse])
 async def get_positions() -> list[PositionResponse]:
-    return _get_db_positions() or _demo["positions"]
+    db_positions = _get_db_positions()
+    if db_positions is not None:
+        return db_positions
+    # Worker is live (portfolio exists) but no positions yet — return empty, not demo
+    if _get_db_portfolio() is not None:
+        return []
+    return cast("list[PositionResponse]", _demo["positions"])
 
 
 @app.get("/api/risk", response_model=RiskMetricsResponse | None)
@@ -694,13 +737,19 @@ async def get_equity_history() -> list[EquityCurvePoint]:
 
 @app.get("/api/backtest-results", response_model=list[BacktestSummary])
 async def get_backtest_results() -> list[BacktestSummary]:
-    # Backtest results are not stored in DB — always from demo/cache
-    return cast("list[BacktestSummary]", _demo["backtest_results"])
+    # Return session history if available, otherwise demo data
+    return _backtest_history or cast("list[BacktestSummary]", _demo["backtest_results"])
 
 
 @app.get("/api/trades", response_model=list[TradeResponse])
 async def get_trades() -> list[TradeResponse]:
-    return _get_db_trades() or _demo["trades"]
+    db_trades = _get_db_trades()
+    if db_trades is not None:
+        return db_trades
+    # Worker is live — return empty list rather than fabricated demo trades
+    if _get_db_portfolio() is not None:
+        return []
+    return cast("list[TradeResponse]", _demo["trades"])
 
 
 @app.get("/api/config", response_model=ConfigResponse)
@@ -812,7 +861,7 @@ async def run_backtest(body: BacktestRunRequest) -> BacktestSummary:
 
         raise HTTPException(status_code=400, detail=f"Unknown strategy: {body.strategy}")
 
-    # Fetch candles from DB
+    # Fetch candles from DB, fall back to synthetic demo data
     cutoff = datetime.now(UTC) - timedelta(days=body.lookback_days)
     query = (
         sa.select(_candles)
@@ -821,16 +870,9 @@ async def run_backtest(body: BacktestRunRequest) -> BacktestSummary:
         .order_by(_candles.c.time)
     )
     rows = _db_query(query)
-    if not rows or len(rows) < 50:
-        from fastapi import HTTPException
 
-        raise HTTPException(
-            status_code=400,
-            detail=f"Not enough candle data for {body.symbol} (need 50+, got {len(rows) if rows else 0})",
-        )
-
-    df = pd.DataFrame(
-        [
+    if rows and len(rows) >= 50:
+        candle_data = [
             {
                 "time": r.time,
                 "open": r.open,
@@ -841,7 +883,10 @@ async def run_backtest(body: BacktestRunRequest) -> BacktestSummary:
             }
             for r in rows
         ]
-    )
+    else:
+        candle_data = _generate_demo_candles(body.symbol, body.lookback_days)
+
+    df = pd.DataFrame(candle_data)
 
     bt_config = BacktestConfig(initial_capital=body.initial_capital)
     result = run_vectorized_backtest(df, signal_fn, bt_config)
@@ -884,9 +929,10 @@ class OrderCreateRequest(BaseModel):
 
 @app.post("/api/orders", response_model=TradeResponse)
 async def place_order(body: OrderCreateRequest) -> TradeResponse:
-    """Place a paper trading order."""
-    from packages.common.types import OrderType, Side
+    """Place a paper trading order with pre-trade risk checks."""
+    from packages.common.types import Direction, OrderType, Signal, Side
     from packages.execution.order_manager import OrderManager
+    from packages.risk.risk_checks import RiskChecker
 
     # Get latest price for market orders
     prices = _get_latest_prices()
@@ -899,6 +945,46 @@ async def place_order(body: OrderCreateRequest) -> TradeResponse:
             status_code=400,
             detail=f"No price data available for {body.symbol}",
         )
+
+    # Pre-trade risk check
+    portfolio = _get_db_portfolio()
+    if portfolio:
+        from packages.common.types import PortfolioSnapshot
+
+        snap = PortfolioSnapshot(
+            time=datetime.now(UTC),
+            equity=portfolio.equity,
+            cash=portfolio.cash,
+            positions_value=portfolio.positions_value,
+            unrealized_pnl=portfolio.unrealized_pnl,
+            realized_pnl=portfolio.realized_pnl,
+            drawdown_pct=portfolio.drawdown_pct,
+        )
+        checker = RiskChecker(
+            max_drawdown_pct=_cfg.risk.max_drawdown_pct,
+            max_concentration_pct=_cfg.risk.max_concentration_pct,
+            max_position_pct=_cfg.risk.max_position_pct,
+            min_trade_usd=_cfg.risk.min_trade_usd,
+            staleness_threshold_minutes=_cfg.risk.staleness_threshold_minutes,
+        )
+        direction = Direction.LONG if body.side.lower() == "buy" else Direction.SHORT
+        dummy_signal = Signal(
+            time=datetime.now(UTC),
+            symbol=body.symbol,
+            direction=direction,
+            strength=0.5,
+            confidence=0.5,
+            regime="trending",
+            components={},
+        )
+        trade_value = body.quantity * latest_price
+        approved, reason = checker.check_pre_trade(
+            dummy_signal, snap, trade_value, data_timestamp=datetime.now(UTC),
+        )
+        if not approved:
+            from fastapi import HTTPException
+
+            raise HTTPException(status_code=400, detail=f"Risk check rejected: {reason}")
 
     order_mgr = OrderManager(paper_mode=True)
 

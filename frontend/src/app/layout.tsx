@@ -16,12 +16,12 @@ export default function RootLayout({
     <html lang="en">
       <head>
         <link
-          href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap"
+          href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap"
           rel="stylesheet"
         />
       </head>
-      <body className="scanline min-h-screen">
-        <div className="max-w-[1600px] mx-auto p-4 md:p-6">
+      <body className="min-h-screen">
+        <div className="max-w-[1600px] mx-auto px-4 py-4 md:px-6 md:py-5">
           <SharedHeader />
           {children}
         </div>

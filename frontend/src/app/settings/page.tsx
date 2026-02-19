@@ -33,7 +33,7 @@ function renderValue(value: unknown, depth: number = 0): React.ReactNode {
     );
   }
   if (typeof value === "number") {
-    return <span className="text-[var(--color-accent-cyan)]">{value}</span>;
+    return <span className="text-[var(--color-accent-cyan)] font-mono tabular-nums">{value}</span>;
   }
   if (typeof value === "string") {
     return <span className="text-[var(--color-text-primary)]">&quot;{value}&quot;</span>;
@@ -165,7 +165,7 @@ export default function SettingsPage() {
       {/* Toast */}
       {toast && (
         <div
-          className={`fixed top-4 right-4 z-50 px-4 py-2 rounded-sm text-xs font-medium animate-fade-in ${
+          className={`fixed top-4 right-4 z-50 px-4 py-2.5 rounded-lg text-xs font-medium animate-fade-in shadow-lg ${
             toast.type === "success"
               ? "bg-[var(--color-accent-green)]/20 text-[var(--color-accent-green)] border border-[var(--color-accent-green)]/30"
               : "bg-[var(--color-accent-red)]/20 text-[var(--color-accent-red)] border border-[var(--color-accent-red)]/30"
@@ -176,25 +176,18 @@ export default function SettingsPage() {
       )}
 
       {/* Header */}
-      <div className="card-glow bg-[var(--color-bg-card)] rounded-sm px-6 py-4 mb-4 animate-fade-in flex items-center justify-between">
+      <div className="card-glow bg-[var(--color-bg-card)] rounded-lg px-6 py-4 mb-4 animate-fade-in flex items-center justify-between">
         <div>
           <h2 className="text-sm font-semibold">System Configuration</h2>
-          <p className="text-[10px] text-[var(--color-text-muted)] mt-1">
+          <p className="text-xs text-[var(--color-text-muted)] mt-1">
             Edit universe, risk, and execution settings. Advanced sections are read-only.
           </p>
         </div>
         <div className="flex gap-2">
-          <button
-            onClick={handleReset}
-            className="px-3 py-1.5 text-[10px] rounded-sm border border-[var(--color-border)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors"
-          >
+          <button onClick={handleReset} className="btn btn-secondary">
             Reset
           </button>
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="px-4 py-1.5 text-[10px] rounded-sm bg-[var(--color-accent-cyan)]/20 text-[var(--color-accent-cyan)] border border-[var(--color-accent-cyan)]/30 hover:bg-[var(--color-accent-cyan)]/30 transition-colors disabled:opacity-50"
-          >
+          <button onClick={handleSave} disabled={saving} className="btn btn-primary">
             {saving ? "Saving..." : "Save Changes"}
           </button>
         </div>
@@ -203,22 +196,22 @@ export default function SettingsPage() {
       {config ? (
         <div className="space-y-4 stagger">
           {/* Universe Section */}
-          <div className="card-glow bg-[var(--color-bg-card)] rounded-sm p-4">
+          <div className="card-glow bg-[var(--color-bg-card)] rounded-lg p-5">
             <div className="mb-4">
-              <h3 className="text-xs font-semibold">Universe</h3>
-              <p className="text-[10px] text-[var(--color-text-muted)]">Trading pairs and data configuration</p>
+              <h3 className="text-sm font-semibold">Universe</h3>
+              <p className="text-xs text-[var(--color-text-muted)]">Trading pairs and data configuration</p>
             </div>
             <div className="space-y-4">
               <div>
-                <label className="text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] block mb-2">Symbols</label>
+                <label className="text-xs text-[var(--color-text-muted)] block mb-2">Symbols</label>
                 <div className="flex gap-2 flex-wrap">
                   {AVAILABLE_SYMBOLS.map((sym) => (
                     <button
                       key={sym}
                       onClick={() => toggleSymbol(sym)}
-                      className={`px-3 py-1 text-[11px] rounded-sm transition-colors ${
+                      className={`px-3 py-1.5 text-xs rounded-full transition-colors ${
                         symbols.includes(sym)
-                          ? "bg-[var(--color-accent-cyan)]/20 text-[var(--color-accent-cyan)] border border-[var(--color-accent-cyan)]/30"
+                          ? "bg-[var(--color-accent-cyan)]/15 text-[var(--color-accent-cyan)] border border-[var(--color-accent-cyan)]/30"
                           : "border border-[var(--color-border)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
                       }`}
                     >
@@ -229,11 +222,11 @@ export default function SettingsPage() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] block mb-1.5">Timeframe</label>
+                  <label className="text-xs text-[var(--color-text-muted)] block mb-1.5">Timeframe</label>
                   <select
                     value={timeframe}
                     onChange={(e) => setTimeframe(e.target.value)}
-                    className="w-full bg-[var(--color-bg-main)] border border-[var(--color-border)] rounded-sm px-3 py-1.5 text-xs text-[var(--color-text-primary)] focus:border-[var(--color-accent-cyan)] outline-none"
+                    className="input"
                   >
                     {TIMEFRAMES.map((tf) => (
                       <option key={tf} value={tf}>{tf}</option>
@@ -241,14 +234,14 @@ export default function SettingsPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] block mb-1.5">Lookback Days</label>
+                  <label className="text-xs text-[var(--color-text-muted)] block mb-1.5">Lookback Days</label>
                   <input
                     type="number"
                     value={lookbackDays}
                     onChange={(e) => setLookbackDays(Number(e.target.value))}
                     min={30}
                     max={3650}
-                    className="w-full bg-[var(--color-bg-main)] border border-[var(--color-border)] rounded-sm px-3 py-1.5 text-xs text-[var(--color-text-primary)] tabular-nums focus:border-[var(--color-accent-cyan)] outline-none"
+                    className="input tabular-nums font-mono"
                   />
                 </div>
               </div>
@@ -256,16 +249,16 @@ export default function SettingsPage() {
           </div>
 
           {/* Risk Section */}
-          <div className="card-glow bg-[var(--color-bg-card)] rounded-sm p-4">
+          <div className="card-glow bg-[var(--color-bg-card)] rounded-lg p-5">
             <div className="mb-4">
-              <h3 className="text-xs font-semibold">Risk Management</h3>
-              <p className="text-[10px] text-[var(--color-text-muted)]">Position limits, drawdown guards, kill switch</p>
+              <h3 className="text-sm font-semibold">Risk Management</h3>
+              <p className="text-xs text-[var(--color-text-muted)]">Position limits, drawdown guards, kill switch</p>
             </div>
             <div className="space-y-4">
               <div>
                 <div className="flex justify-between mb-1.5">
-                  <label className="text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)]">Vol Target</label>
-                  <span className="text-[11px] tabular-nums text-[var(--color-accent-cyan)]">{(volTarget * 100).toFixed(0)}%</span>
+                  <label className="text-xs text-[var(--color-text-muted)]">Vol Target</label>
+                  <span className="text-xs tabular-nums font-mono text-[var(--color-accent-cyan)]">{(volTarget * 100).toFixed(0)}%</span>
                 </div>
                 <input
                   type="range"
@@ -277,8 +270,8 @@ export default function SettingsPage() {
               </div>
               <div>
                 <div className="flex justify-between mb-1.5">
-                  <label className="text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)]">Max Drawdown (Kill Switch)</label>
-                  <span className="text-[11px] tabular-nums text-[var(--color-accent-red)]">{(maxDrawdown * 100).toFixed(0)}%</span>
+                  <label className="text-xs text-[var(--color-text-muted)]">Max Drawdown (Kill Switch)</label>
+                  <span className="text-xs tabular-nums font-mono text-[var(--color-accent-red)]">{(maxDrawdown * 100).toFixed(0)}%</span>
                 </div>
                 <input
                   type="range"
@@ -290,8 +283,8 @@ export default function SettingsPage() {
               </div>
               <div>
                 <div className="flex justify-between mb-1.5">
-                  <label className="text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)]">Max Position Size</label>
-                  <span className="text-[11px] tabular-nums text-[var(--color-text-primary)]">{(maxPositionPct * 100).toFixed(0)}%</span>
+                  <label className="text-xs text-[var(--color-text-muted)]">Max Position Size</label>
+                  <span className="text-xs tabular-nums font-mono text-[var(--color-text-primary)]">{(maxPositionPct * 100).toFixed(0)}%</span>
                 </div>
                 <input
                   type="range"
@@ -302,38 +295,38 @@ export default function SettingsPage() {
                 />
               </div>
               <div>
-                <label className="text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] block mb-1.5">Min Trade USD</label>
+                <label className="text-xs text-[var(--color-text-muted)] block mb-1.5">Min Trade USD</label>
                 <input
                   type="number"
                   value={minTradeUsd}
                   onChange={(e) => setMinTradeUsd(Number(e.target.value))}
                   min={1}
                   max={10000}
-                  className="w-full bg-[var(--color-bg-main)] border border-[var(--color-border)] rounded-sm px-3 py-1.5 text-xs text-[var(--color-text-primary)] tabular-nums focus:border-[var(--color-accent-cyan)] outline-none"
+                  className="input tabular-nums font-mono"
                 />
               </div>
             </div>
           </div>
 
           {/* Execution Section */}
-          <div className="card-glow bg-[var(--color-bg-card)] rounded-sm p-4">
+          <div className="card-glow bg-[var(--color-bg-card)] rounded-lg p-5">
             <div className="mb-4">
-              <h3 className="text-xs font-semibold">Execution</h3>
-              <p className="text-[10px] text-[var(--color-text-muted)]">Order types, slippage model, retry policy</p>
+              <h3 className="text-sm font-semibold">Execution</h3>
+              <p className="text-xs text-[var(--color-text-muted)]">Order types, slippage model, retry policy</p>
             </div>
             <div className="space-y-4">
               <div>
-                <label className="text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] block mb-2">Mode</label>
+                <label className="text-xs text-[var(--color-text-muted)] block mb-2">Mode</label>
                 <div className="flex gap-2">
                   {["paper", "live"].map((mode) => (
                     <button
                       key={mode}
                       onClick={() => setExecMode(mode)}
-                      className={`px-4 py-1.5 text-[11px] rounded-sm transition-colors ${
+                      className={`px-4 py-1.5 text-xs rounded-md transition-colors ${
                         execMode === mode
                           ? mode === "live"
-                            ? "bg-[var(--color-accent-red)]/20 text-[var(--color-accent-red)] border border-[var(--color-accent-red)]/30"
-                            : "bg-[var(--color-accent-green)]/20 text-[var(--color-accent-green)] border border-[var(--color-accent-green)]/30"
+                            ? "bg-[var(--color-accent-red)]/15 text-[var(--color-accent-red)] border border-[var(--color-accent-red)]/30"
+                            : "bg-[var(--color-accent-green)]/15 text-[var(--color-accent-green)] border border-[var(--color-accent-green)]/30"
                           : "border border-[var(--color-border)] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
                       }`}
                     >
@@ -344,30 +337,33 @@ export default function SettingsPage() {
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] block mb-1.5">Timeout (sec)</label>
+                  <label className="text-xs text-[var(--color-text-muted)] block mb-1.5">Timeout (sec)</label>
                   <input
                     type="number"
                     value={orderTimeout}
                     onChange={(e) => setOrderTimeout(Number(e.target.value))}
                     min={10}
                     max={600}
-                    className="w-full bg-[var(--color-bg-main)] border border-[var(--color-border)] rounded-sm px-3 py-1.5 text-xs text-[var(--color-text-primary)] tabular-nums focus:border-[var(--color-accent-cyan)] outline-none"
+                    className="input tabular-nums font-mono"
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] block mb-1.5">Max Retries</label>
+                  <label className="text-xs text-[var(--color-text-muted)] block mb-1.5">Max Retries</label>
                   <input
                     type="number"
                     value={maxRetries}
                     onChange={(e) => setMaxRetries(Number(e.target.value))}
                     min={0}
                     max={10}
-                    className="w-full bg-[var(--color-bg-main)] border border-[var(--color-border)] rounded-sm px-3 py-1.5 text-xs text-[var(--color-text-primary)] tabular-nums focus:border-[var(--color-accent-cyan)] outline-none"
+                    className="input tabular-nums font-mono"
                   />
                 </div>
               </div>
             </div>
           </div>
+
+          {/* Divider */}
+          <div className="border-t border-[var(--color-border)] my-2" />
 
           {/* Read-only sections */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -375,17 +371,17 @@ export default function SettingsPage() {
               const meta = sectionMeta[key];
               const data = config[key as keyof SystemConfig];
               return (
-                <div key={key} className="card-glow bg-[var(--color-bg-card)] rounded-sm p-4">
+                <div key={key} className="card-glow bg-[var(--color-bg-card)] rounded-lg p-4">
                   <div className="mb-3 flex items-center justify-between">
                     <div>
-                      <h3 className="text-xs font-semibold">{meta.label}</h3>
-                      <p className="text-[10px] text-[var(--color-text-muted)]">{meta.description}</p>
+                      <h3 className="text-sm font-semibold">{meta.label}</h3>
+                      <p className="text-xs text-[var(--color-text-muted)]">{meta.description}</p>
                     </div>
-                    <span className="text-[9px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] border border-[var(--color-border)] rounded-sm px-1.5 py-0.5">
+                    <span className="text-[10px] uppercase tracking-wider text-[var(--color-text-muted)] border border-[var(--color-border)] rounded-full px-2 py-0.5">
                       Read-only
                     </span>
                   </div>
-                  <div className="text-[11px] font-mono space-y-1">
+                  <div className="text-xs space-y-1">
                     {data && typeof data === "object" ? (
                       Object.entries(data as Record<string, unknown>).map(([k, v]) => (
                         <div key={k} className="flex items-start gap-2">
@@ -403,8 +399,10 @@ export default function SettingsPage() {
           </div>
         </div>
       ) : (
-        <div className="card-glow bg-[var(--color-bg-card)] rounded-sm p-8 text-center text-[var(--color-text-muted)] text-sm">
-          Loading configuration...
+        <div className="space-y-3">
+          <div className="skeleton h-48 rounded-lg" />
+          <div className="skeleton h-48 rounded-lg" />
+          <div className="skeleton h-32 rounded-lg" />
         </div>
       )}
     </>

@@ -17,7 +17,9 @@
 11. [Backtesting](#11-backtesting)
 12. [Execution](#12-execution)
 13. [The Dashboard](#13-the-dashboard)
-14. [Glossary](#14-glossary)
+14. [Data Sources & Demo Mode](#14-data-sources--demo-mode)
+15. [Running the System](#15-running-the-system)
+16. [Glossary](#16-glossary)
 
 ---
 
@@ -31,34 +33,34 @@ QuantFlow is an AI-powered trading system designed for cryptocurrency spot marke
 
 Before diving into individual components, here is the full journey from raw market data to an executed trade, step by step.
 
-**Step 1: Gather Market Data**
+**Step 1: Gather Market Data:**
 Every 4 hours, QuantFlow pulls candle data from cryptocurrency exchanges like Binance and Coinbase. A "candle" is a summary of what happened to a price during that time period: the opening price, closing price, highest price, lowest price, and how much was traded (volume).
 
-**Step 2: Compute Technical Features**
+**Step 2: Compute Technical Features:**
 The raw candle data is transformed into meaningful measurements called technical indicators. These include things like RSI (how overbought or oversold something is), ATR (how much prices are swinging around), and Bollinger Bands (whether the price is unusually high or low compared to recent history). Think of this step as converting raw ingredients into a recipe that the system can understand.
 
-**Step 3: Run the Machine Learning Model**
+**Step 3: Run the Machine Learning Model:**
 A LightGBM model takes the technical features as input and makes a prediction: will the price likely go up, down, or stay flat? Crucially, it does not just give a single answer -- it provides five different estimates (quantiles) that describe a range of possible outcomes. This tells us not just "where" the price might go, but "how sure" we are about it.
 
-**Step 4: Detect the Market Regime**
+**Step 4: Detect the Market Regime:**
 A Hidden Markov Model (HMM) looks at recent returns and volatility to classify the current market into one of three states: trending (prices moving cleanly in one direction), mean-reverting (prices bouncing back and forth around a level), or choppy (wild, unpredictable swings). This is like a weather forecast for the market.
 
-**Step 5: Score News Sentiment**
+**Step 5: Score News Sentiment:**
 Separately, the system ingests news headlines from CryptoPanic and Reddit posts, scores them as positive or negative, filters out likely spam or manipulation attempts, and produces an overall sentiment score.
 
-**Step 6: Fuse the Signals**
+**Step 6: Fuse the Signals:**
 The Regime-Gated Mixture of Experts (MoE) system takes the three signal sources (technical, ML, sentiment) and combines them using weights that depend on the current regime. In a trending market, the ML model gets more weight. In a mean-reverting market, technical indicators dominate. In a choppy market, everything gets scaled down significantly because the environment is too noisy to trade aggressively.
 
-**Step 7: Size the Position**
+**Step 7: Size the Position:**
 Based on the fused signal's strength and the model's confidence, the volatility-targeted position sizer decides how much capital to allocate. High volatility means smaller positions. Low confidence means smaller positions. This keeps risk consistent no matter the market conditions.
 
-**Step 8: Run Risk Checks**
+**Step 8: Run Risk Checks:**
 Before any trade goes out, a battery of safety checks runs: Is the kill switch active? Have we lost too much money already? Is this trade too large relative to our portfolio? Is our data fresh enough to trust? If any check fails, the trade is blocked.
 
-**Step 9: Execute the Trade**
+**Step 9: Execute the Trade:**
 If all risk checks pass, the order is submitted. In paper mode (the default), this is simulated with fake money. In live mode, the order goes to the exchange with handling for partial fills, retries, and timeouts.
 
-**Step 10: Monitor**
+**Step 10: Monitor:**
 After execution, the system tracks portfolio equity, drawdown, and model drift. Everything feeds into a real-time dashboard so you can see what is happening at a glance.
 
 ---
@@ -672,35 +674,224 @@ QuantFlow's event-driven backtest engine simulates partial fills with a configur
 
 ## 13. The Dashboard
 
-QuantFlow includes a web-based dashboard built with Next.js, React, and Tailwind CSS. It uses a terminal-inspired dark theme with an industrial aesthetic designed for information density rather than decoration. The dashboard polls the FastAPI backend every few seconds for fresh data.
+QuantFlow includes a 4-page web dashboard built with Next.js 15, React 19, and Tailwind CSS 4. It uses a terminal-inspired dark theme with an industrial aesthetic -- JetBrains Mono for numbers, Inter for labels, cyan/green/red accent colors on a near-black background. The layout is shared across all pages: a `SharedHeader` component provides the QUANT::FLOW branding, navigation bar, version number, candle count, and a LIVE/DEMO/OFFLINE status indicator. The frontend polls the FastAPI backend every 5-15 seconds for fresh data.
 
-### Dashboard Panels
+### Page 1: Dashboard (`/`)
+
+The main overview page showing portfolio health at a glance.
 
 **Metric Cards**
-The top of the dashboard displays key portfolio metrics at a glance: total equity, daily return, total return, and other key performance indicators. These give you an instant read on portfolio health without needing to dig into details.
-
-**Equity Chart**
-A Recharts-powered area chart showing the portfolio's equity over time. The chart uses a green/red gradient fill -- green when equity is above the starting point, red when below. It updates every 15 seconds by polling the `/api/equity-history` endpoint. This is the most important chart on the dashboard because it immediately shows whether the system is making or losing money.
+Six cards across the top display: Equity, Cash, Positions Value, Unrealized PnL, Realized PnL, and Drawdown. Each card has a Lucide icon, color-coding (green for positive PnL, red for negative, amber/red for dangerous drawdown levels), and the primary equity card pulses subtly to indicate the system is live.
 
 **Signal Panel**
-Shows the current trading signals for each asset in the universe, including the direction (long/short/flat), signal strength, confidence level, and which components contributed to the signal. This lets you understand not just what the system wants to do, but why.
+Shows the current trading signals for each asset in the universe (BTC/USDT, ETH/USDT, SOL/USDT), including the direction (long/short/flat), signal strength, confidence level, and which components (technical, ML, sentiment) contributed to the signal. This lets you understand not just what the system wants to do, but why.
+
+**Equity Chart**
+A Recharts-powered area chart showing the portfolio's equity over time. The chart uses a green/red gradient fill -- green when equity is above the starting point, red when below. It supports time range selection (1W, 1M, 3M, All) and updates every 15 seconds by polling the `/api/equity-history` endpoint. This is the most important chart on the dashboard because it immediately shows whether the system is making or losing money.
 
 **Positions Table**
-A table listing all current positions: which assets are held, the quantity, entry price, current price, unrealized profit/loss, and position size as a percentage of the portfolio. This answers "what are we currently exposed to?"
+A table listing all current positions: which assets are held, the side (long/short), quantity, entry price, current price, unrealized profit/loss, and PnL percentage. This answers "what are we currently exposed to?"
 
 **Risk Panel**
-Displays current risk metrics including:
-- Current drawdown and how close it is to the kill switch threshold
-- Whether the kill switch is active or inactive
-- Concentration across positions
-- Data freshness (time since last update)
+Displays current risk metrics including: current drawdown with a visual progress bar showing proximity to the kill switch threshold, max drawdown, portfolio volatility, Sharpe ratio, concentration percentage, and kill switch status (active/inactive).
 
-**Regime Badge**
-A visual indicator showing the current market regime detected by the HMM (trending, mean-reverting, or choppy). This is displayed prominently because the regime drives the entire signal weighting system. If you see "choppy," you know the system is being cautious.
+**Regime Detection**
+A panel showing the current market regime detected by the HMM (trending, mean-reverting, or choppy) with a confidence percentage, regime badge, and model details. This is displayed prominently because the regime drives the entire signal weighting system.
+
+**System Info**
+A small panel at the bottom showing execution mode (PAPER), timeframe (4H), and server uptime.
+
+### Page 2: Trades (`/trades`)
+
+The trading page combines order entry with trade history.
+
+**Order Entry Panel**
+A "Place Order" form at the top of the page, clearly marked as "Paper Mode." The form includes:
+- **Symbol selector** -- dropdown for BTC/USDT, ETH/USDT, SOL/USDT, with the current price displayed below
+- **Side** -- BUY (green) / SELL (red) toggle buttons
+- **Quantity** -- numeric input
+- **Type** -- Market or Limit order dropdown
+- **Price** -- shows estimated market price for market orders, or a manual input field for limit orders
+- **Place Order button** -- submits via `POST /api/orders` to the backend's `OrderManager(paper_mode=True)`
+
+Orders are filled instantly in paper mode. Success/error feedback appears below the form. Placed orders are prepended to the local trade list (React state) so they appear immediately without waiting for the next poll.
+
+**Summary Cards**
+Four cards showing: Total Trades, Net PnL, Win Rate, and Average Fees for the currently filtered trade set.
+
+**Filter Bar**
+Filter buttons for: All, Winners (PnL > 0), Losers (PnL < 0), and per-symbol (BTC/USDT, ETH/USDT, SOL/USDT).
+
+**Trade History Table**
+A detailed table with columns for Time, ID, Symbol, Side, Quantity, Price, PnL, Fees, and Regime. Each row is color-coded: buy sides in green, sell in red, PnL colored by sign, and regime names colored by type (trending/mean-reverting/choppy).
+
+### Page 3: Backtest (`/backtest`)
+
+The backtesting page lets you run real backtests against the vectorized engine and compare strategies.
+
+**Run Backtest Form**
+A parameter form with:
+- **Symbol** -- BTC/USDT, ETH/USDT, or SOL/USDT
+- **Strategy** -- Buy & Hold, MA Crossover (20/50), or Mean Reversion (z-score)
+- **Lookback** -- 90 days, 180 days, 1 year, or 2 years
+- **Capital** -- initial capital amount (default $100,000)
+- **Run Backtest button** -- submits via `POST /api/backtest/run`
+
+When running, an indeterminate progress bar animates below the form. The backend fetches real candle data from TimescaleDB if available; otherwise it generates synthetic candles using Geometric Brownian Motion (GBM). The actual `run_vectorized_backtest()` engine runs the math -- the backtest logic is real even when the candles are synthetic.
+
+**Best Strategy Hero**
+A highlighted card showing the top-performing strategy by Sharpe ratio from all results (both live runs and demo comparisons).
+
+**Strategy Comparison Table**
+All results ranked by Sharpe ratio, showing: rank, strategy name, total return, Sharpe ratio, max drawdown, total trades, and hit rate. Live-run results are tagged with a cyan "LIVE" badge to distinguish them from the pre-loaded demo comparisons.
+
+**Methodology Note**
+A footer card explaining the backtesting methodology: walk-forward validation with purged k-fold (gap=3, embargo=2), cost model details, and triple-barrier label parameters.
+
+### Page 4: Settings (`/settings`)
+
+The configuration page with editable and read-only sections.
+
+**Editable Sections**
+
+Three sections can be modified and saved:
+
+- **Universe** -- toggle trading symbols on/off (pill buttons for BTC/USDT, ETH/USDT, SOL/USDT, AVAX/USDT, DOGE/USDT), select timeframe (1h/4h/1d), set lookback days
+- **Risk Management** -- sliders for vol target (5-30%), max drawdown / kill switch threshold (5-25%), max position size (10-50%), and a numeric input for minimum trade USD
+- **Execution** -- paper/live mode toggle (live mode is highlighted in red as a warning), order timeout, max retries
+
+All editable settings persist to `config/default.yaml` via `PATCH /api/config`. The Save button writes the YAML file on the backend. The Reset button reverts to the last saved values.
+
+**Read-Only Sections**
+
+Three sections are displayed but not editable (they require code changes to modify safely):
+
+- **Features** -- technical indicator parameters, normalization settings
+- **Model** -- LightGBM hyperparameters, walk-forward configuration
+- **Regime Detection** -- HMM states, transition thresholds
+
+Each read-only section renders values with type-colored formatting: numbers in cyan, booleans in green/red, strings in white, arrays in brackets.
 
 ---
 
-## 14. Glossary
+## 14. Data Sources & Demo Mode
+
+### The Three-Tier Data Strategy
+
+QuantFlow's API implements a graceful degradation pattern with three tiers:
+
+1. **Database (LIVE)** -- When TimescaleDB is connected and tables contain data, the API serves real candles, signals, positions, portfolio snapshots, risk metrics, and trades from the database. The header shows a green dot with "LIVE" and displays the candle count.
+
+2. **Demo Fallback (DEMO)** -- When the API is running but the database is unavailable or tables are empty, every endpoint falls back to pre-generated demo data. The header shows an amber dot with "DEMO." This is the most common state during development.
+
+3. **Offline (OFFLINE)** -- When the backend is completely unreachable, the frontend shows a red dot with "OFFLINE" and displays loading skeletons.
+
+The fallback logic is simple: each endpoint calls its `_get_db_*()` helper, which returns `None` if the DB is unavailable or the query returns no rows. The endpoint then returns `db_result or demo_fallback`.
+
+### How Demo Data Is Generated
+
+At server startup, `_generate_demo_data()` runs once with `random.seed(42)`, producing a fixed set of demo data that is identical every time the server starts:
+
+- **Equity curve** -- 540 data points (90 days of 4-hour bars) generated by a random walk with slight upward drift (mean return +0.03% per bar, volatility 1.2% per bar). Starting equity: $100,000.
+- **Signals** -- 3 literal signal objects: BTC long (strength 0.72, confidence 0.85, trending), ETH short (strength -0.35, confidence 0.62, mean-reverting), SOL flat (strength 0.08, confidence 0.41, choppy).
+- **Positions** -- 2 literal positions: BTC long 0.45 units at $96,420 entry, ETH short 3.2 units at $3,450 entry.
+- **Portfolio** -- Computed from the equity curve endpoint and position values.
+- **Trades** -- 50 pre-generated trades cycling through BTC/ETH/SOL with randomized prices, quantities, and PnL values.
+- **Backtest comparisons** -- 5 hardcoded `BacktestSummary` objects representing the full system, buy & hold, MA crossover, no-regime, and no-sentiment variants.
+- **Risk metrics** -- Derived from the equity curve's drawdown, with a Sharpe of 1.85 and kill switch inactive.
+- **Regime** -- Set to "trending" with 0.85 confidence and a short history of regime changes.
+
+### Demo Prices
+
+`_DEMO_PRICES` is a constant dictionary used when the database has no candle data:
+
+```
+BTC/USDT: $98,150
+ETH/USDT: $3,380
+SOL/USDT: $182
+```
+
+These prices are used for paper order fills and as fallback values for the `/api/prices` endpoint.
+
+### Synthetic Candles for Backtests
+
+When you run a backtest via the UI and the database has fewer than 50 candles for the selected symbol, the API generates synthetic candles using `_generate_demo_candles()`. This function uses Geometric Brownian Motion (GBM):
+
+- Seeded by `hash(symbol) + lookback_days` for reproducibility
+- Starts at 85% of the demo price (so the chart trends upward)
+- Slight upward drift: μ = 0.0002 per bar
+- Per-bar volatility: σ = 0.015
+- Generates OHLCV data with realistic high/low spreads
+
+The important point: the backtest **math is real** (the vectorized engine runs with cost models, metrics, and benchmark comparisons), only the input candles are synthetic.
+
+### What Persists vs. What Is Session-Only
+
+| Data | Persists across refreshes? | Why |
+|------|---------------------------|-----|
+| Demo dashboard data | Yes | Same seed 42 generates identical data every server start |
+| Demo comparison backtests | Yes | Hardcoded constants |
+| Placed paper orders (Trades page) | **No** -- lost on page refresh | Stored in React state (`localTrades`), not written to DB in demo mode |
+| Live backtest runs | **No** -- lost on server restart | Stored in Python list (`_backtest_history`) in server memory |
+| Settings changes | **Yes** | Written to `config/default.yaml` on disk via `save_config()` |
+| Orders placed with DB running | **Yes** | Written to the `orders` table in TimescaleDB |
+
+---
+
+## 15. Running the System
+
+### Quick Start (Demo Mode -- No Database Required)
+
+```bash
+# 1. Start the backend API
+PYTHONPATH=. uv run uvicorn apps.api.main:app --reload --port 8000
+
+# 2. In a separate terminal, start the frontend
+cd frontend && npm run dev
+
+# 3. Open http://localhost:4000
+```
+
+The frontend runs on port 4000 and proxies all `/api/*` requests to the backend on port 8000 via Next.js rewrites. Without a database, you will see:
+- An **amber "DEMO"** indicator in the header
+- Pre-generated portfolio metrics, equity chart, signals, positions, and trades
+- Fully functional order entry (paper mode) -- orders fill instantly but do not survive page refresh
+- Fully functional backtest runner -- uses synthetic GBM candles, real backtest math
+- Settings that save and persist to `config/default.yaml`
+
+### With TimescaleDB (Real Candle Data)
+
+```bash
+# 1. Start the database (requires Docker Desktop)
+docker compose -f docker-compose.dev.yml up -d
+
+# 2. Backfill real candles from Binance (one-time, data persists in Docker volume)
+PYTHONPATH=. uv run python scripts/backfill_candles.py --no-sandbox
+
+# 3. Start backend and frontend as above
+PYTHONPATH=. uv run uvicorn apps.api.main:app --reload --port 8000
+cd frontend && npm run dev
+```
+
+With the database connected, you will see:
+- A **green "LIVE"** indicator in the header with a candle count (e.g., "13,140 candles")
+- Real BTC/ETH/SOL prices from the latest candles
+- Backtests running on real historical data instead of synthetic candles
+- Orders persisted to the `orders` table
+
+Note: Even with the database, most dashboard data (signals, positions, portfolio, risk, regime) will still show demo values until the worker process is wired to write computed results back to the database. The candles and prices are real; the derived analytics are not yet.
+
+### Running Tests
+
+```bash
+uv run pytest tests/ -v
+```
+
+Currently 72 tests passing. The Binance integration test is excluded from CI (geo-blocked on GitHub runners) but can be run locally.
+
+---
+
+## 16. Glossary
 
 **Alpha** -- Returns generated above a benchmark (like "beating the market"). If the market returns 10% and your strategy returns 13%, your alpha is 3%.
 

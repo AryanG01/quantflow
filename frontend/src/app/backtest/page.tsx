@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 import { api, BacktestResult } from "@/lib/api";
 import { usePolling } from "@/hooks/usePolling";
+import { BarChart3 } from "lucide-react";
 
 const metricLabels: Record<string, string> = {
   total_return: "Total Return",
@@ -68,7 +69,7 @@ export default function BacktestPage() {
     if (result) {
       setLiveResults((prev) => [result, ...prev]);
     } else {
-      setError("Backtest failed — check that candle data is loaded for this symbol.");
+      setError("Backtest failed — check server logs for details.");
     }
   };
 
@@ -80,67 +81,55 @@ export default function BacktestPage() {
   return (
     <>
       {/* Run Backtest Form */}
-      <div className="card-glow bg-[var(--color-bg-card)] rounded-sm p-4 mb-4 animate-fade-in">
-        <h2 className="text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] mb-3">
+      <div className="card-glow bg-[var(--color-bg-card)] rounded-lg p-5 mb-4 animate-fade-in">
+        <h2 className="text-sm font-semibold text-[var(--color-text-secondary)] mb-3">
           Run Backtest
         </h2>
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3 items-end">
           <div>
-            <label className="text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] block mb-1.5">Symbol</label>
-            <select
-              value={symbol}
-              onChange={(e) => setSymbol(e.target.value)}
-              className="w-full bg-[var(--color-bg-main)] border border-[var(--color-border)] rounded-sm px-3 py-1.5 text-xs text-[var(--color-text-primary)] focus:border-[var(--color-accent-cyan)] outline-none"
-            >
+            <label className="text-xs text-[var(--color-text-muted)] block mb-1.5">Symbol</label>
+            <select value={symbol} onChange={(e) => setSymbol(e.target.value)} className="input">
               {SYMBOLS.map((s) => (
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>
           </div>
           <div>
-            <label className="text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] block mb-1.5">Strategy</label>
-            <select
-              value={strategy}
-              onChange={(e) => setStrategy(e.target.value)}
-              className="w-full bg-[var(--color-bg-main)] border border-[var(--color-border)] rounded-sm px-3 py-1.5 text-xs text-[var(--color-text-primary)] focus:border-[var(--color-accent-cyan)] outline-none"
-            >
+            <label className="text-xs text-[var(--color-text-muted)] block mb-1.5">Strategy</label>
+            <select value={strategy} onChange={(e) => setStrategy(e.target.value)} className="input">
               {STRATEGIES.map((s) => (
                 <option key={s.value} value={s.value}>{s.label}</option>
               ))}
             </select>
           </div>
           <div>
-            <label className="text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] block mb-1.5">Lookback</label>
-            <select
-              value={lookbackDays}
-              onChange={(e) => setLookbackDays(Number(e.target.value))}
-              className="w-full bg-[var(--color-bg-main)] border border-[var(--color-border)] rounded-sm px-3 py-1.5 text-xs text-[var(--color-text-primary)] focus:border-[var(--color-accent-cyan)] outline-none"
-            >
+            <label className="text-xs text-[var(--color-text-muted)] block mb-1.5">Lookback</label>
+            <select value={lookbackDays} onChange={(e) => setLookbackDays(Number(e.target.value))} className="input">
               {LOOKBACK_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>{o.label}</option>
               ))}
             </select>
           </div>
           <div>
-            <label className="text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] block mb-1.5">Capital</label>
+            <label className="text-xs text-[var(--color-text-muted)] block mb-1.5">Capital</label>
             <input
               type="number"
               value={initialCapital}
               onChange={(e) => setInitialCapital(Number(e.target.value))}
               min={1000}
               max={10000000}
-              className="w-full bg-[var(--color-bg-main)] border border-[var(--color-border)] rounded-sm px-3 py-1.5 text-xs text-[var(--color-text-primary)] tabular-nums focus:border-[var(--color-accent-cyan)] outline-none"
+              className="input tabular-nums font-mono"
             />
           </div>
           <div>
             <button
               onClick={handleRun}
               disabled={running}
-              className="w-full px-4 py-1.5 text-[11px] rounded-sm bg-[var(--color-accent-cyan)]/20 text-[var(--color-accent-cyan)] border border-[var(--color-accent-cyan)]/30 hover:bg-[var(--color-accent-cyan)]/30 transition-colors disabled:opacity-50"
+              className="btn btn-primary w-full"
             >
               {running ? (
                 <span className="flex items-center justify-center gap-2">
-                  <span className="inline-block w-3 h-3 border border-[var(--color-accent-cyan)] border-t-transparent rounded-full animate-spin" />
+                  <span className="inline-block w-3 h-3 border-2 border-[var(--color-accent-cyan)] border-t-transparent rounded-full animate-spin" />
                   Running...
                 </span>
               ) : (
@@ -149,26 +138,34 @@ export default function BacktestPage() {
             </button>
           </div>
         </div>
+
+        {/* Progress bar when running */}
+        {running && (
+          <div className="mt-3 progress-bar h-1 bg-[var(--color-bg-primary)]">
+            <div className="progress-bar-indeterminate h-full bg-[var(--color-accent-cyan)] rounded-full" />
+          </div>
+        )}
+
         {error && (
-          <p className="text-[11px] text-[var(--color-accent-red)] mt-2">{error}</p>
+          <p className="text-xs text-[var(--color-accent-red)] mt-2">{error}</p>
         )}
       </div>
 
       {/* Hero stat */}
       {best && (
-        <div className="card-glow bg-[var(--color-bg-card)] rounded-sm px-6 py-5 mb-4 animate-fade-in">
-          <span className="text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)]">
+        <div className="card-glow bg-[var(--color-bg-card)] rounded-lg px-6 py-5 mb-4 animate-fade-in">
+          <span className="text-xs text-[var(--color-text-muted)]">
             Best Strategy (by Sharpe)
           </span>
-          <div className="flex items-baseline gap-4 mt-1">
+          <div className="flex items-baseline gap-4 mt-1 flex-wrap">
             <span className="text-2xl font-bold text-[var(--color-accent-cyan)]">
               {best.strategy}
             </span>
-            <span className="text-lg tabular-nums font-semibold">
+            <span className="text-lg tabular-nums font-semibold font-mono">
               Sharpe {best.sharpe_ratio.toFixed(3)}
             </span>
             <span
-              className={`text-sm tabular-nums ${best.total_return >= 0 ? "text-[var(--color-accent-green)]" : "text-[var(--color-accent-red)]"}`}
+              className={`text-sm tabular-nums font-mono ${best.total_return >= 0 ? "text-[var(--color-accent-green)]" : "text-[var(--color-accent-red)]"}`}
             >
               {best.total_return >= 0 ? "+" : ""}
               {(best.total_return * 100).toFixed(2)}% return
@@ -178,13 +175,13 @@ export default function BacktestPage() {
       )}
 
       {/* Comparison Table */}
-      <div className="card-glow bg-[var(--color-bg-card)] rounded-sm overflow-hidden">
-        <div className="px-4 py-3 border-b border-[var(--color-border)] flex items-center justify-between">
-          <h2 className="text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)]">
+      <div className="card-glow bg-[var(--color-bg-card)] rounded-lg overflow-hidden">
+        <div className="px-5 py-3 border-b border-[var(--color-border)] flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-[var(--color-text-secondary)]">
             Strategy Comparison
           </h2>
           {liveResults.length > 0 && (
-            <span className="text-[10px] text-[var(--color-accent-cyan)]">
+            <span className="text-xs px-2.5 py-0.5 rounded-full bg-[var(--color-accent-cyan)]/10 text-[var(--color-accent-cyan)]">
               {liveResults.length} live run{liveResults.length !== 1 ? "s" : ""}
             </span>
           )}
@@ -193,16 +190,16 @@ export default function BacktestPage() {
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-[var(--color-border)]">
-                <th className="text-left px-4 py-3 text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] font-normal">
+                <th className="text-left px-5 py-3 text-xs text-[var(--color-text-muted)] font-medium">
                   #
                 </th>
-                <th className="text-left px-4 py-3 text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] font-normal">
+                <th className="text-left px-5 py-3 text-xs text-[var(--color-text-muted)] font-medium">
                   Strategy
                 </th>
                 {Object.keys(metricLabels).map((k) => (
                   <th
                     key={k}
-                    className="text-right px-4 py-3 text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] font-normal"
+                    className="text-right px-5 py-3 text-xs text-[var(--color-text-muted)] font-medium"
                   >
                     {metricLabels[k]}
                   </th>
@@ -210,55 +207,69 @@ export default function BacktestPage() {
               </tr>
             </thead>
             <tbody>
-              {sorted.map((r, i) => (
-                <tr
-                  key={`${r.strategy}-${i}`}
-                  className="border-b border-[var(--color-border)] hover:bg-[var(--color-bg-card-hover)] transition-colors"
-                >
-                  <td className={`px-4 py-2.5 font-bold ${rankColor(i)}`}>
-                    {i + 1}
-                  </td>
-                  <td className="px-4 py-2.5 font-semibold">{r.strategy}</td>
-                  {Object.keys(metricLabels).map((k) => {
-                    const val = r[k as keyof BacktestResult] as number;
-                    let color = "";
-                    if (k === "total_return")
-                      color =
-                        val >= 0
-                          ? "text-[var(--color-accent-green)]"
-                          : "text-[var(--color-accent-red)]";
-                    if (k === "max_drawdown")
-                      color =
-                        val > 0.15
-                          ? "text-[var(--color-accent-red)]"
-                          : "text-[var(--color-text-secondary)]";
-                    return (
-                      <td
-                        key={k}
-                        className={`px-4 py-2.5 text-right tabular-nums ${color}`}
-                      >
-                        {fmt(k, val)}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
+              {sorted.map((r, i) => {
+                const isLive = i < liveResults.length;
+                return (
+                  <tr
+                    key={`${r.strategy}-${i}`}
+                    className="border-b border-[var(--color-border)] hover:bg-[var(--color-bg-card-hover)] transition-colors"
+                  >
+                    <td className={`px-5 py-3 font-bold ${rankColor(i)}`}>
+                      {i + 1}
+                    </td>
+                    <td className="px-5 py-3 font-semibold">
+                      <span className="flex items-center gap-2">
+                        {r.strategy}
+                        {isLive && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--color-accent-cyan)]/10 text-[var(--color-accent-cyan)] font-medium">
+                            LIVE
+                          </span>
+                        )}
+                      </span>
+                    </td>
+                    {Object.keys(metricLabels).map((k) => {
+                      const val = r[k as keyof BacktestResult] as number;
+                      let color = "";
+                      if (k === "total_return")
+                        color =
+                          val >= 0
+                            ? "text-[var(--color-accent-green)]"
+                            : "text-[var(--color-accent-red)]";
+                      if (k === "max_drawdown")
+                        color =
+                          val > 0.15
+                            ? "text-[var(--color-accent-red)]"
+                            : "text-[var(--color-text-secondary)]";
+                      return (
+                        <td
+                          key={k}
+                          className={`px-5 py-3 text-right tabular-nums font-mono ${color}`}
+                        >
+                          {fmt(k, val)}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
         {sorted.length === 0 && (
-          <div className="text-center py-8 text-[var(--color-text-muted)] text-sm">
-            No backtest results available — run one above
+          <div className="flex flex-col items-center justify-center py-12 text-[var(--color-text-muted)]">
+            <BarChart3 size={32} className="mb-3 opacity-40" />
+            <p className="text-sm font-medium">Run your first backtest</p>
+            <p className="text-xs mt-1">Configure parameters above and click Run</p>
           </div>
         )}
       </div>
 
       {/* Methodology note */}
-      <div className="card-glow bg-[var(--color-bg-card)] rounded-sm p-4 mt-4">
-        <h3 className="text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] mb-2">
+      <div className="card-glow bg-[var(--color-bg-card)] rounded-lg p-4 mt-4">
+        <h3 className="text-sm font-semibold text-[var(--color-text-secondary)] mb-2">
           Methodology
         </h3>
-        <div className="text-[10px] text-[var(--color-text-muted)] space-y-1 font-mono">
+        <div className="text-xs text-[var(--color-text-muted)] space-y-1">
           <p>Walk-forward validation &middot; Purged k-fold (gap=3, embargo=2)</p>
           <p>
             Cost model: spread + linear impact + exchange fees (maker/taker)

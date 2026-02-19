@@ -17,16 +17,16 @@ const regimeColors: Record<string, string> = {
 export function SignalPanel({ signals }: { signals: Signal[] }) {
   if (!signals.length) {
     return (
-      <div className="card-glow bg-[var(--color-bg-card)] rounded-sm p-4">
-        <h3 className="text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] mb-3">Signals</h3>
+      <div className="card-glow bg-[var(--color-bg-card)] rounded-lg p-4">
+        <h3 className="text-sm font-semibold text-[var(--color-text-secondary)] mb-3">Signals</h3>
         <p className="text-[var(--color-text-muted)] text-sm">Waiting for signal generation...</p>
       </div>
     );
   }
 
   return (
-    <div className="card-glow bg-[var(--color-bg-card)] rounded-sm p-4">
-      <h3 className="text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] mb-3">
+    <div className="card-glow bg-[var(--color-bg-card)] rounded-lg p-4">
+      <h3 className="text-sm font-semibold text-[var(--color-text-secondary)] mb-3">
         Active Signals
       </h3>
       <div className="space-y-2">
@@ -35,24 +35,24 @@ export function SignalPanel({ signals }: { signals: Signal[] }) {
           return (
             <div
               key={sig.symbol}
-              className={`${style.bg} border ${style.border} rounded-sm px-3 py-2 flex items-center justify-between`}
+              className={`${style.bg} border ${style.border} rounded-lg px-4 py-2.5 flex items-center justify-between`}
             >
               <div className="flex items-center gap-3">
                 <span className="text-sm font-semibold text-[var(--color-text-primary)]">
                   {sig.symbol}
                 </span>
-                <span className={`text-[10px] font-bold uppercase tracking-wider ${style.text}`}>
+                <span className={`text-[11px] font-bold uppercase tracking-wider ${style.text}`}>
                   {style.label}
                 </span>
               </div>
               <div className="flex items-center gap-4 text-xs">
                 <span className="text-[var(--color-text-secondary)]">
-                  str <span className="font-semibold text-[var(--color-text-primary)]">{(sig.strength * 100).toFixed(0)}%</span>
+                  str <span className="font-semibold text-[var(--color-text-primary)] tabular-nums font-mono">{(sig.strength * 100).toFixed(0)}%</span>
                 </span>
                 <span className="text-[var(--color-text-secondary)]">
-                  conf <span className="font-semibold text-[var(--color-text-primary)]">{(sig.confidence * 100).toFixed(0)}%</span>
+                  conf <span className="font-semibold text-[var(--color-text-primary)] tabular-nums font-mono">{(sig.confidence * 100).toFixed(0)}%</span>
                 </span>
-                <span className={`${regimeColors[sig.regime] || "text-slate-400"} text-[10px] uppercase`}>
+                <span className={`${regimeColors[sig.regime] || "text-slate-400"} text-[11px] uppercase`}>
                   {sig.regime.replace("_", " ")}
                 </span>
               </div>

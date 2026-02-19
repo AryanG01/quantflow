@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api, Trade } from "@/lib/api";
 import { usePolling } from "@/hooks/usePolling";
+import { ArrowLeftRight, Filter } from "lucide-react";
 
 function formatCurrency(n: number): string {
   if (Math.abs(n) >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
@@ -106,12 +107,12 @@ export default function TradesPage() {
   return (
     <>
       {/* Order Entry Panel */}
-      <div className="card-glow bg-[var(--color-bg-card)] rounded-sm p-4 mb-4 animate-fade-in">
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)]">
+      <div className="card-glow bg-[var(--color-bg-card)] rounded-lg p-5 mb-4 animate-fade-in">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-semibold text-[var(--color-text-secondary)]">
             Place Order
           </h2>
-          <span className="text-[10px] px-2 py-0.5 rounded-sm bg-[var(--color-accent-green)]/15 text-[var(--color-accent-green)] border border-[var(--color-accent-green)]/20">
+          <span className="text-[11px] px-2.5 py-1 rounded-full bg-[var(--color-accent-green)]/10 text-[var(--color-accent-green)] border border-[var(--color-accent-green)]/20 font-medium">
             Paper Mode
           </span>
         </div>
@@ -119,18 +120,18 @@ export default function TradesPage() {
         <div className="grid grid-cols-2 md:grid-cols-6 gap-3 items-end">
           {/* Symbol */}
           <div>
-            <label className="text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] block mb-1.5">Symbol</label>
+            <label className="text-xs text-[var(--color-text-muted)] block mb-1.5">Symbol</label>
             <select
               value={orderSymbol}
               onChange={(e) => setOrderSymbol(e.target.value)}
-              className="w-full bg-[var(--color-bg-main)] border border-[var(--color-border)] rounded-sm px-3 py-1.5 text-xs text-[var(--color-text-primary)] focus:border-[var(--color-accent-cyan)] outline-none"
+              className="input"
             >
               {SYMBOLS.map((s) => (
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>
             {prices[orderSymbol] && (
-              <span className="text-[10px] text-[var(--color-text-muted)] mt-0.5 block tabular-nums">
+              <span className="text-[11px] text-[var(--color-text-muted)] mt-0.5 block tabular-nums font-mono">
                 {formatCurrency(prices[orderSymbol])}
               </span>
             )}
@@ -138,25 +139,17 @@ export default function TradesPage() {
 
           {/* Side */}
           <div>
-            <label className="text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] block mb-1.5">Side</label>
+            <label className="text-xs text-[var(--color-text-muted)] block mb-1.5">Side</label>
             <div className="flex gap-1">
               <button
                 onClick={() => setOrderSide("buy")}
-                className={`flex-1 px-3 py-1.5 text-[11px] rounded-sm transition-colors ${
-                  orderSide === "buy"
-                    ? "bg-[var(--color-accent-green)]/20 text-[var(--color-accent-green)] border border-[var(--color-accent-green)]/30"
-                    : "border border-[var(--color-border)] text-[var(--color-text-muted)]"
-                }`}
+                className={`flex-1 btn ${orderSide === "buy" ? "btn-success" : "btn-secondary"}`}
               >
                 BUY
               </button>
               <button
                 onClick={() => setOrderSide("sell")}
-                className={`flex-1 px-3 py-1.5 text-[11px] rounded-sm transition-colors ${
-                  orderSide === "sell"
-                    ? "bg-[var(--color-accent-red)]/20 text-[var(--color-accent-red)] border border-[var(--color-accent-red)]/30"
-                    : "border border-[var(--color-border)] text-[var(--color-text-muted)]"
-                }`}
+                className={`flex-1 btn ${orderSide === "sell" ? "btn-danger" : "btn-secondary"}`}
               >
                 SELL
               </button>
@@ -165,7 +158,7 @@ export default function TradesPage() {
 
           {/* Quantity */}
           <div>
-            <label className="text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] block mb-1.5">Quantity</label>
+            <label className="text-xs text-[var(--color-text-muted)] block mb-1.5">Quantity</label>
             <input
               type="number"
               value={orderQty}
@@ -173,17 +166,17 @@ export default function TradesPage() {
               placeholder="0.01"
               step="any"
               min="0"
-              className="w-full bg-[var(--color-bg-main)] border border-[var(--color-border)] rounded-sm px-3 py-1.5 text-xs text-[var(--color-text-primary)] tabular-nums focus:border-[var(--color-accent-cyan)] outline-none"
+              className="input tabular-nums font-mono"
             />
           </div>
 
           {/* Order Type */}
           <div>
-            <label className="text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] block mb-1.5">Type</label>
+            <label className="text-xs text-[var(--color-text-muted)] block mb-1.5">Type</label>
             <select
               value={orderType}
               onChange={(e) => setOrderType(e.target.value as "market" | "limit")}
-              className="w-full bg-[var(--color-bg-main)] border border-[var(--color-border)] rounded-sm px-3 py-1.5 text-xs text-[var(--color-text-primary)] focus:border-[var(--color-accent-cyan)] outline-none"
+              className="input"
             >
               <option value="market">Market</option>
               <option value="limit">Limit</option>
@@ -192,7 +185,7 @@ export default function TradesPage() {
 
           {/* Limit Price (conditional) */}
           <div>
-            <label className="text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] block mb-1.5">
+            <label className="text-xs text-[var(--color-text-muted)] block mb-1.5">
               {orderType === "limit" ? "Limit Price" : "Est. Price"}
             </label>
             {orderType === "limit" ? (
@@ -203,10 +196,10 @@ export default function TradesPage() {
                 placeholder="0.00"
                 step="any"
                 min="0"
-                className="w-full bg-[var(--color-bg-main)] border border-[var(--color-border)] rounded-sm px-3 py-1.5 text-xs text-[var(--color-text-primary)] tabular-nums focus:border-[var(--color-accent-cyan)] outline-none"
+                className="input tabular-nums font-mono"
               />
             ) : (
-              <div className="w-full border border-[var(--color-border)] rounded-sm px-3 py-1.5 text-xs text-[var(--color-text-muted)] tabular-nums bg-[var(--color-bg-main)]/50">
+              <div className="input bg-[var(--color-bg-input)]/50 text-[var(--color-text-muted)] tabular-nums font-mono">
                 {prices[orderSymbol] ? formatCurrency(prices[orderSymbol]) : "—"}
               </div>
             )}
@@ -217,11 +210,7 @@ export default function TradesPage() {
             <button
               onClick={handlePlaceOrder}
               disabled={placing}
-              className={`w-full px-4 py-1.5 text-[11px] rounded-sm transition-colors disabled:opacity-50 ${
-                orderSide === "buy"
-                  ? "bg-[var(--color-accent-green)]/20 text-[var(--color-accent-green)] border border-[var(--color-accent-green)]/30 hover:bg-[var(--color-accent-green)]/30"
-                  : "bg-[var(--color-accent-red)]/20 text-[var(--color-accent-red)] border border-[var(--color-accent-red)]/30 hover:bg-[var(--color-accent-red)]/30"
-              }`}
+              className={`w-full btn ${orderSide === "buy" ? "btn-success" : "btn-danger"}`}
             >
               {placing ? "Placing..." : "Place Order"}
             </button>
@@ -230,44 +219,49 @@ export default function TradesPage() {
 
         {/* Feedback */}
         {orderError && (
-          <p className="text-[11px] text-[var(--color-accent-red)] mt-2">{orderError}</p>
+          <div className="flex items-center gap-2 mt-3 px-3 py-2 rounded-md bg-[var(--color-accent-red)]/10 border border-[var(--color-accent-red)]/20">
+            <p className="text-xs text-[var(--color-accent-red)]">{orderError}</p>
+          </div>
         )}
         {orderSuccess && (
-          <p className="text-[11px] text-[var(--color-accent-green)] mt-2 animate-fade-in">{orderSuccess}</p>
+          <div className="flex items-center gap-2 mt-3 px-3 py-2 rounded-md bg-[var(--color-accent-green)]/10 border border-[var(--color-accent-green)]/20 animate-fade-in">
+            <p className="text-xs text-[var(--color-accent-green)]">{orderSuccess}</p>
+          </div>
         )}
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-4 stagger">
-        <div className="card-glow bg-[var(--color-bg-card)] rounded-sm px-4 py-3">
-          <span className="text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)]">Total Trades</span>
-          <div className="text-xl font-bold tabular-nums">{filtered.length}</div>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 stagger">
+        <div className="card-glow bg-[var(--color-bg-card)] rounded-lg px-4 py-4">
+          <span className="text-xs text-[var(--color-text-muted)]">Total Trades</span>
+          <div className="text-xl font-semibold tabular-nums font-mono mt-1">{filtered.length}</div>
         </div>
-        <div className="card-glow bg-[var(--color-bg-card)] rounded-sm px-4 py-3">
-          <span className="text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)]">Net PnL</span>
-          <div className={`text-xl font-bold tabular-nums ${totalPnl >= 0 ? "text-[var(--color-accent-green)]" : "text-[var(--color-accent-red)]"}`}>
+        <div className="card-glow bg-[var(--color-bg-card)] rounded-lg px-4 py-4">
+          <span className="text-xs text-[var(--color-text-muted)]">Net PnL</span>
+          <div className={`text-xl font-semibold tabular-nums font-mono mt-1 ${totalPnl >= 0 ? "text-[var(--color-accent-green)]" : "text-[var(--color-accent-red)]"}`}>
             {totalPnl >= 0 ? "+" : ""}{formatCurrency(totalPnl)}
           </div>
         </div>
-        <div className="card-glow bg-[var(--color-bg-card)] rounded-sm px-4 py-3">
-          <span className="text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)]">Win Rate</span>
-          <div className="text-xl font-bold tabular-nums">{hitRate.toFixed(1)}%</div>
+        <div className="card-glow bg-[var(--color-bg-card)] rounded-lg px-4 py-4">
+          <span className="text-xs text-[var(--color-text-muted)]">Win Rate</span>
+          <div className="text-xl font-semibold tabular-nums font-mono mt-1">{hitRate.toFixed(1)}%</div>
         </div>
-        <div className="card-glow bg-[var(--color-bg-card)] rounded-sm px-4 py-3">
-          <span className="text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)]">Avg Fees</span>
-          <div className="text-xl font-bold tabular-nums text-[var(--color-text-secondary)]">
+        <div className="card-glow bg-[var(--color-bg-card)] rounded-lg px-4 py-4">
+          <span className="text-xs text-[var(--color-text-muted)]">Avg Fees</span>
+          <div className="text-xl font-semibold tabular-nums font-mono mt-1 text-[var(--color-text-secondary)]">
             ${filtered.length > 0 ? (filtered.reduce((s: number, t: Trade) => s + t.fees, 0) / filtered.length).toFixed(2) : "0.00"}
           </div>
         </div>
       </div>
 
       {/* Filters */}
-      <div className="flex gap-2 mb-4 flex-wrap">
+      <div className="flex gap-2 mb-4 flex-wrap items-center">
+        <Filter size={14} className="text-[var(--color-text-muted)]" />
         {["all", "winners", "losers", "BTC/USDT", "ETH/USDT", "SOL/USDT"].map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
-            className={`px-3 py-1 text-xs rounded-sm transition-colors ${
+            className={`px-3 py-1.5 text-xs rounded-md transition-colors ${
               filter === f
                 ? "bg-[var(--color-bg-card)] text-[var(--color-accent-cyan)] card-glow"
                 : "text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
@@ -279,40 +273,40 @@ export default function TradesPage() {
       </div>
 
       {/* Trade Table */}
-      <div className="card-glow bg-[var(--color-bg-card)] rounded-sm overflow-hidden">
+      <div className="card-glow bg-[var(--color-bg-card)] rounded-lg overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
               <tr className="border-b border-[var(--color-border)]">
-                <th className="text-left px-4 py-3 text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] font-normal">Time</th>
-                <th className="text-left px-4 py-3 text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] font-normal">ID</th>
-                <th className="text-left px-4 py-3 text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] font-normal">Symbol</th>
-                <th className="text-left px-4 py-3 text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] font-normal">Side</th>
-                <th className="text-right px-4 py-3 text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] font-normal">Qty</th>
-                <th className="text-right px-4 py-3 text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] font-normal">Price</th>
-                <th className="text-right px-4 py-3 text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] font-normal">PnL</th>
-                <th className="text-right px-4 py-3 text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] font-normal">Fees</th>
-                <th className="text-center px-4 py-3 text-[10px] uppercase tracking-[0.15em] text-[var(--color-text-muted)] font-normal">Regime</th>
+                <th className="text-left px-4 py-3 text-xs text-[var(--color-text-muted)] font-medium">Time</th>
+                <th className="text-left px-4 py-3 text-xs text-[var(--color-text-muted)] font-medium">ID</th>
+                <th className="text-left px-4 py-3 text-xs text-[var(--color-text-muted)] font-medium">Symbol</th>
+                <th className="text-left px-4 py-3 text-xs text-[var(--color-text-muted)] font-medium">Side</th>
+                <th className="text-right px-4 py-3 text-xs text-[var(--color-text-muted)] font-medium">Qty</th>
+                <th className="text-right px-4 py-3 text-xs text-[var(--color-text-muted)] font-medium">Price</th>
+                <th className="text-right px-4 py-3 text-xs text-[var(--color-text-muted)] font-medium">PnL</th>
+                <th className="text-right px-4 py-3 text-xs text-[var(--color-text-muted)] font-medium">Fees</th>
+                <th className="text-center px-4 py-3 text-xs text-[var(--color-text-muted)] font-medium">Regime</th>
               </tr>
             </thead>
             <tbody>
               {filtered.map((trade: Trade) => (
                 <tr key={trade.id} className="border-b border-[var(--color-border)] hover:bg-[var(--color-bg-card-hover)] transition-colors">
-                  <td className="px-4 py-2.5 text-[var(--color-text-secondary)] tabular-nums">{formatTime(trade.timestamp)}</td>
-                  <td className="px-4 py-2.5 text-[var(--color-text-muted)]">{trade.id}</td>
+                  <td className="px-4 py-2.5 text-[var(--color-text-secondary)]">{formatTime(trade.timestamp)}</td>
+                  <td className="px-4 py-2.5 text-[var(--color-text-muted)] font-mono text-[11px]">{trade.id}</td>
                   <td className="px-4 py-2.5 font-semibold">{trade.symbol}</td>
                   <td className="px-4 py-2.5">
-                    <span className={trade.side === "buy" ? "text-[var(--color-accent-green)]" : "text-[var(--color-accent-red)]"}>
-                      {trade.side.toUpperCase()}
+                    <span className={`text-[11px] font-bold uppercase ${trade.side === "buy" ? "text-[var(--color-accent-green)]" : "text-[var(--color-accent-red)]"}`}>
+                      {trade.side}
                     </span>
                   </td>
-                  <td className="px-4 py-2.5 text-right tabular-nums">{trade.quantity}</td>
-                  <td className="px-4 py-2.5 text-right tabular-nums">{formatCurrency(trade.price)}</td>
-                  <td className={`px-4 py-2.5 text-right tabular-nums font-semibold ${trade.pnl >= 0 ? "text-[var(--color-accent-green)]" : "text-[var(--color-accent-red)]"}`}>
+                  <td className="px-4 py-2.5 text-right tabular-nums font-mono">{trade.quantity}</td>
+                  <td className="px-4 py-2.5 text-right tabular-nums font-mono">{formatCurrency(trade.price)}</td>
+                  <td className={`px-4 py-2.5 text-right tabular-nums font-mono font-semibold ${trade.pnl >= 0 ? "text-[var(--color-accent-green)]" : "text-[var(--color-accent-red)]"}`}>
                     {trade.pnl >= 0 ? "+" : ""}{formatCurrency(trade.pnl)}
                   </td>
-                  <td className="px-4 py-2.5 text-right tabular-nums text-[var(--color-text-muted)]">${trade.fees.toFixed(2)}</td>
-                  <td className={`px-4 py-2.5 text-center ${regimeColors[trade.regime] || ""}`}>
+                  <td className="px-4 py-2.5 text-right tabular-nums font-mono text-[var(--color-text-muted)]">${trade.fees.toFixed(2)}</td>
+                  <td className={`px-4 py-2.5 text-center text-[11px] ${regimeColors[trade.regime] || ""}`}>
                     {trade.regime.replace("_", "-")}
                   </td>
                 </tr>
@@ -321,7 +315,11 @@ export default function TradesPage() {
           </table>
         </div>
         {filtered.length === 0 && (
-          <div className="text-center py-8 text-[var(--color-text-muted)] text-sm">No trades found</div>
+          <div className="flex flex-col items-center justify-center py-12 text-[var(--color-text-muted)]">
+            <ArrowLeftRight size={32} className="mb-3 opacity-40" />
+            <p className="text-sm font-medium">No trades found</p>
+            <p className="text-xs mt-1">Place an order above or adjust your filters</p>
+          </div>
         )}
       </div>
     </>

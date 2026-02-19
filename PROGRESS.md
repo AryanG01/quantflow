@@ -50,9 +50,9 @@
 ### Frontend Multi-Page Navigation ✅
 - [x] NavBar component with active-state highlighting (Dashboard, Trades, Backtest, Settings)
 - [x] SharedHeader extracted into layout for consistent branding + nav across all pages
-- [x] **Trades page** — Filterable trade history table with PnL summary cards, regime color-coding
-- [x] **Backtest page** — Strategy comparison table ranked by Sharpe, methodology footer
-- [x] **Settings page** — Recursive config tree renderer with type-colored values (read-only)
+- [x] **Trades page** — Order entry panel (paper mode), buy/sell with market/limit types, filterable trade history, PnL summary cards
+- [x] **Backtest page** — Run backtests with strategy/symbol/lookback selection, progress bar, strategy comparison table with LIVE badges
+- [x] **Settings page** — Editable universe/risk/execution with sliders and toggles, read-only advanced sections, save/reset to YAML
 
 ### Real Database Integration ✅
 - [x] Docker: TimescaleDB + Redis running via docker-compose.dev.yml
@@ -73,36 +73,62 @@
 - [x] `.github/workflows/ci.yml` — ruff check + ruff format + mypy + pytest + frontend build
 - [x] All checks pass on GitHub Actions
 
+### Frontend Interactive Features ✅
+- [x] **Order placement** — `POST /api/orders` with paper-mode OrderManager, fills at latest prices
+- [x] **Backtest runner** — `POST /api/backtest/run` with real vectorized engine, DB candles or synthetic GBM fallback
+- [x] **Config save/reset** — `PATCH /api/config` persists universe/risk/execution to `config/default.yaml`
+- [x] **LIVE/DEMO/OFFLINE indicator** — SharedHeader shows green/amber/red dot based on DB connection status
+- [x] **Demo data fallback** — `_generate_demo_data()` with seed 42, all endpoints fall back gracefully
+
+### Worker → DB Writes ✅ (wired — server restart required to activate)
+- [x] `DBPortfolioStateStore` replaces in-memory floats — portfolio state persists to `portfolio_snapshots`
+- [x] `_persist_signal()` — INSERTs into `signals` table after every fusion step
+- [x] `_persist_order()` — INSERTs into `orders` table after every execution
+- [x] `_persist_position()` — UPSERTs into `positions` table (ON CONFLICT by symbol)
+- [x] `_persist_risk_metrics()` — INSERTs into `risk_metrics` every minute via health_check_task
+- [x] Portfolio cash/equity updated after fills (10 bps fee model)
+- [x] `ModelRegistry.save()` after training + `load()` at startup (restarts skip retraining)
+- [x] `SentimentScorer.compute_score()` replaces hardcoded `sentiment: 0.0`
+- [x] Worker: `candle_ingestion_task()` runs every 1h via `BinanceAdapter` + `backfill_candles()`
+- [x] Worker: `health_check_task()` calls `_persist_risk_metrics()` every 1 min
+- [x] Worker: `sentiment_task()` clears stale events (>24h) every 5 min
+- [x] API: `GET /api/backtest-results` returns `_backtest_history` first, demo as fallback
+- [x] API: `POST /api/orders` pre-trade risk gate via `RiskChecker.check_pre_trade()`
+
 ### Documentation ✅
-- [x] `HOW_IT_WORKS.md` — Beginner-friendly guide explaining all algorithms
+- [x] `HOW_IT_WORKS.md` — Beginner-friendly guide (16 sections: algorithms, dashboard pages, data sources, quick start)
 - [x] `PROGRESS.md` — This file
 
 ---
 
 ## Current State
 
-**Website runs locally at http://localhost:4000** with 4 pages:
-- **Dashboard** (`/`) — Portfolio metrics, signals, equity chart, positions, risk, regime
-- **Trades** (`/trades`) — Filterable trade history with PnL summary
-- **Backtest** (`/backtest`) — Strategy comparison table
-- **Settings** (`/settings`) — Read-only config display
+**Website runs locally at http://localhost:4000** with 4 interactive pages:
+- **Dashboard** (`/`) — 6 metric cards with icons, equity chart (time range selector), signals, positions, risk panel, regime badge, system info
+- **Trades** (`/trades`) — Paper order entry (buy/sell, market/limit), trade history with filters (all/winners/losers/symbol), 4 summary cards
+- **Backtest** (`/backtest`) — Run backtests with symbol/strategy/lookback/capital selection, progress bar, strategy comparison with LIVE badges, methodology note
+- **Settings** (`/settings`) — Editable universe/risk/execution with sliders and toggles, read-only advanced sections (features/model/regime), save/reset to YAML
 
-**Backend API at http://localhost:8000** with 12 endpoints:
-- `/api/health`, `/api/signals`, `/api/portfolio`, `/api/positions`
-- `/api/risk`, `/api/regime`, `/api/equity-history`, `/api/backtest-results`
-- `/api/trades`, `/api/config`, `/api/candles/{symbol}`, `/api/prices`
+**Backend API at http://localhost:8000** with 16 endpoints:
+- GET: `/api/health`, `/api/signals`, `/api/signals/{symbol}`, `/api/portfolio`, `/api/positions`
+- GET: `/api/risk`, `/api/regime`, `/api/equity-history`, `/api/backtest-results`
+- GET: `/api/trades`, `/api/config`, `/api/candles/{symbol}`, `/api/prices`, `/api/backtest/history`
+- POST: `/api/orders`, `/api/backtest/run`
+- PATCH: `/api/config`
 
-**Database**: 13,140 real candles in TimescaleDB. Other tables (signals, positions, portfolio_snapshots, orders, risk_metrics) are empty — populated once the worker runs.
+**Data flow**: API queries DB first → if empty, serves demo data (seed 42) → frontend polls every 5-15s
+- Header shows **LIVE** (green) / **DEMO** (amber) / **OFFLINE** (red) status
 
-**Data flow**: API queries DB first → if empty, serves demo data → frontend polls every 5-15s
-
-**What currently works with REAL data:**
-- Candle data (BTC/ETH/SOL 4h bars, 2 years)
+**What works with real data (when DB is connected):**
+- Candle data (BTC/ETH/SOL 4h bars, 2 years, 13,140 candles)
 - Live prices from latest candles
 - Config from actual YAML file
+- Backtests run on real historical candles
+- Orders persist to the `orders` table
 
-**What still uses DEMO data (until worker runs):**
-- Portfolio, signals, positions, risk metrics, equity curve, trades, regime, backtest results
+**What still uses demo data (worker writes implemented — restart API + worker to activate):**
+- Portfolio snapshots, signals, positions, risk metrics, equity curve, trades, regime
+- Switch to LIVE after: (1) restart API, (2) start worker, (3) wait one pipeline tick (~4h) or run backfill
 
 ---
 
@@ -126,41 +152,28 @@ cd frontend && npm run dev
 
 ---
 
-## Next Tasks (in priority order)
+## Remaining Gaps (from original SPEC.md)
 
-### 1. Make frontend dynamic (replace hardcoded/demo data)
-**Settings page** — Replace read-only config display with interactive controls:
-- Dropdowns to select symbols, timeframe, exchange
-- Sliders for risk params (vol_target, max_drawdown, max_position)
-- POST endpoint to save config changes
-- Live validation
+### 1. Restart API server (immediate — unblocks backtest/run 404)
+The running uvicorn process uses stale code. Code is correct (21 routes verified). Kill and restart.
+```bash
+# Kill: Ctrl+C on uvicorn terminal, then:
+PYTHONPATH=. uv run uvicorn apps.api.main:app --reload --port 8000
+```
 
-**Backtest page** — Make backtests runnable from the UI:
-- Form to select strategy, symbol, date range
-- POST endpoint to trigger backtest
-- Real-time progress indicator
-- Display actual results (not hardcoded)
+### 2. Live exchange connection
+No UI for API key entry. No paper → live mode switch from the frontend (the Settings page has a paper/live toggle, but switching to "live" without exchange credentials does nothing).
 
-**Trades page** — Enable paper trading from the UI:
-- Buy/sell form with symbol, quantity, order type
-- POST endpoint for order placement
-- Real-time order status updates
-- Position management (close positions)
+### 4. Live exchange connection
+No UI for API key entry. No paper → live mode switch from the frontend (the Settings page has a paper/live toggle, but switching to "live" without exchange credentials does nothing).
 
-### 2. Run worker for live signal generation
-- Start worker process to compute features → train models → generate signals
-- Signals, positions, portfolio snapshots populate in DB
-- Dashboard switches from demo to real data automatically
+### 5. Monitoring dashboards
+Prometheus metrics are exported from the worker, but Grafana dashboards are not configured. `docker-compose.yml` includes Grafana but no provisioned dashboards.
 
-### 3. Exchange wallet connection
-- UI flow for entering API keys securely
-- Connect to real Binance/Coinbase accounts
-- Switch between paper and live modes
-
-### 4. Deploy to cloud (free hosting)
+### 6. Cloud deployment
+No Vercel/Railway deployment yet.
 - Frontend → Vercel (free tier)
 - Backend + DB → Railway or Render (free Postgres + containers)
-- Site stays up when laptop is closed
 
 ---
 
@@ -179,7 +192,7 @@ QuantFlow/
 │   ├── backtest/       # Vectorized + event-driven engines
 │   └── monitoring/     # Prometheus, alerting, drift detection
 ├── apps/
-│   ├── api/            # FastAPI backend (12 endpoints, DB-connected)
+│   ├── api/            # FastAPI backend (16 endpoints, DB-connected)
 │   └── worker/         # Scheduled pipeline tasks
 ├── frontend/           # Next.js 15 dashboard (port 4000)
 ├── scripts/            # CLI tools (backfill, backtest, ablation)

@@ -80,13 +80,13 @@ execution:
 
 exchanges:
   binance:
-    sandbox: true
+    sandbox: false
     rate_limit_rpm: 1200
     fees_bps:
       maker: 10.0
       taker: 10.0
   coinbase:
-    sandbox: true
+    sandbox: false
     rate_limit_rpm: 600
     fees_bps:
       maker: 40.0
