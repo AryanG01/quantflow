@@ -1,27 +1,32 @@
 universe:
   symbols:
-    - BTC/USDT
-    - ETH/USDT
-    - SOL/USDT
-  timeframe: "4h"
-  lookback_days: 730  # 2 years
-
+  - BTC/USDT
+  - ETH/USDT
+  - SOL/USDT
+  - AVAX/USDT
+  - DOGE/USDT
+  timeframe: 4h
+  lookback_days: 730
 features:
   technical:
     rsi_period: 14
     atr_period: 14
     bb_period: 20
     bb_std: 2.0
-    vol_window: 24  # 24 bars = 4 days at 4h
+    vol_window: 24
     vwap_period: 24
   normalization:
     method: rolling_zscore
     window: 100
-    shift: 1  # prevent lookahead
-
+    shift: 1
 model:
   type: lightgbm_quantile
-  quantiles: [0.1, 0.25, 0.5, 0.75, 0.9]
+  quantiles:
+  - 0.1
+  - 0.25
+  - 0.5
+  - 0.75
+  - 0.9
   walk_forward:
     train_bars: 1000
     test_bars: 100
@@ -32,17 +37,17 @@ model:
     profit_taking_pct: 0.03
     stop_loss_pct: 0.015
     max_holding_bars: 12
-
 regime:
   model: gaussian_hmm
   n_states: 3
-  features: [log_returns, realized_vol]
+  features:
+  - log_returns
+  - realized_vol
   retrain_interval_days: 7
   state_mapping:
     trending: 0
     mean_reverting: 1
     choppy: 2
-
 signals:
   fusion:
     method: regime_gated_moe
@@ -59,25 +64,22 @@ signals:
         technical: 0.3
         ml: 0.3
         sentiment: 0.4
-    choppy_scale: 0.3  # reduce position by 70% in choppy regime
-
+    choppy_scale: 0.3
 risk:
-  vol_target: 0.15  # 15% annualized
+  vol_target: 0.15
   max_position_pct: 0.25
   max_portfolio_leverage: 1.0
-  max_drawdown_pct: 0.15  # kill switch at -15%
-  max_concentration_pct: 0.30
+  max_drawdown_pct: 0.15
+  max_concentration_pct: 0.3
   min_trade_usd: 10.0
   staleness_threshold_minutes: 30
-
 execution:
-  mode: paper  # paper | live
+  mode: paper
   order_timeout_seconds: 120
   max_retries: 3
   slippage_model:
     fixed_spread_bps: 5.0
     linear_impact_bps: 2.0
-
 exchanges:
   binance:
     sandbox: false
@@ -91,18 +93,16 @@ exchanges:
     fees_bps:
       maker: 40.0
       taker: 60.0
-
 monitoring:
   prometheus_port: 9090
-  alert_webhook_url: ""
+  alert_webhook_url: ''
   drift_psi_threshold: 0.2
-
 database:
   host: ${POSTGRES_HOST:localhost}
   port: ${POSTGRES_PORT:5432}
   name: ${POSTGRES_DB:trading}
   user: ${POSTGRES_USER:trading}
   password: ${POSTGRES_PASSWORD:changeme}
-
+  sslmode: ${POSTGRES_SSLMODE:}
 redis:
   url: ${REDIS_URL:redis://localhost:6379/0}

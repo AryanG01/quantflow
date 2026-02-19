@@ -40,10 +40,14 @@ class DatabaseConfig(BaseModel):
     name: str = "trading"
     user: str = "trading"
     password: str = "changeme"
+    sslmode: str = ""  # e.g. "require" for Timescale Cloud
 
     @property
     def url(self) -> str:
-        return f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.name}"
+        base = f"postgresql://{self.user}:{self.password}@{self.host}:{self.port}/{self.name}"
+        if self.sslmode:
+            return f"{base}?sslmode={self.sslmode}"
+        return base
 
 
 class RedisConfig(BaseModel):

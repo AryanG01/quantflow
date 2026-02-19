@@ -59,9 +59,12 @@ logs/
 CLAUDE.md
 .claude/
 
+# Credentials / secrets
+migrations/*.txt
+*.credentials.txt
+*-credentials.txt
+
 # Node
 frontend/node_modules/
 frontend/.next/
 
-# Lock files managed locally
-uv.lock
