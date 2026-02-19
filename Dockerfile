@@ -19,6 +19,7 @@ COPY packages/ packages/
 COPY apps/ apps/
 COPY scripts/ scripts/
 COPY config/ config/
+ENV PYTHONPATH=/app
 
 # ---- API target ----
 FROM base AS api

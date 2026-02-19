@@ -543,3 +543,8 @@ class SignalPipeline:
 
         # Persist risk metrics
         self._persist_risk_metrics()
+
+        # Write snapshot every run so equity curve builds even with no trades
+        updated = snapshot.model_copy(update={"time": datetime.now(UTC), "drawdown_pct": dd})
+        self._portfolio_store.save_snapshot(updated)
+        logger.info("portfolio_snapshot_written", equity=snapshot.equity, drawdown=dd)
