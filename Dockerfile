@@ -19,13 +19,10 @@ COPY packages/ packages/
 COPY apps/ apps/
 COPY scripts/ scripts/
 COPY config/ config/
+COPY models/ models/
 ENV PYTHONPATH=/app
 
-# ---- API target ----
-FROM base AS api
-EXPOSE 8000
-CMD ["uv", "run", "uvicorn", "apps.api.main:app", "--host", "0.0.0.0", "--port", "8000"]
-
-# ---- Worker target ----
-FROM base AS worker
-CMD ["uv", "run", "python", "-m", "apps.worker.main"]
+# APP_MODE=api  → uvicorn (default)
+# APP_MODE=worker → background worker
+ENV APP_MODE=api
+CMD ["sh", "-c", "if [ \"$APP_MODE\" = \"worker\" ]; then uv run python -m apps.worker.main; else uv run uvicorn apps.api.main:app --host 0.0.0.0 --port ${PORT:-8000}; fi"]
