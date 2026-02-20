@@ -91,7 +91,12 @@ export default function TradesPage() {
     }
   };
 
-  const allTrades = [...localTrades, ...(trades || [])];
+  const seen = new Set<string>();
+  const allTrades = [...localTrades, ...(trades || [])].filter((t) => {
+    if (seen.has(t.id)) return false;
+    seen.add(t.id);
+    return true;
+  });
 
   const filtered = allTrades.filter((t: Trade) => {
     if (filter === "all") return true;
