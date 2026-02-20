@@ -930,7 +930,7 @@ class OrderCreateRequest(BaseModel):
 @app.post("/api/orders", response_model=TradeResponse)
 async def place_order(body: OrderCreateRequest) -> TradeResponse:
     """Place a paper trading order with pre-trade risk checks."""
-    from packages.common.types import Direction, OrderType, Side, Signal
+    from packages.common.types import Direction, OrderType, Regime, Side, Signal
     from packages.execution.order_manager import OrderManager
     from packages.risk.risk_checks import RiskChecker
 
@@ -974,7 +974,7 @@ async def place_order(body: OrderCreateRequest) -> TradeResponse:
             direction=direction,
             strength=0.5,
             confidence=0.5,
-            regime="trending",
+            regime=Regime.TRENDING,
             components={},
         )
         trade_value = body.quantity * latest_price
