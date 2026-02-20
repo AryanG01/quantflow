@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from packages.common.types import PortfolioSnapshot
 from packages.risk.interfaces import PortfolioStateStore
@@ -63,8 +64,8 @@ class DBPortfolioStateStore(PortfolioStateStore):
         )
 
     def save_snapshot(self, snapshot: PortfolioSnapshot) -> None:
-        """Save a portfolio snapshot to DB."""
-        stmt = sa.insert(PORTFOLIO_TABLE).values(
+        """Save a portfolio snapshot to DB (upsert on time conflict)."""
+        values = dict(
             time=snapshot.time,
             equity=snapshot.equity,
             cash=snapshot.cash,
@@ -72,6 +73,10 @@ class DBPortfolioStateStore(PortfolioStateStore):
             unrealized_pnl=snapshot.unrealized_pnl,
             realized_pnl=snapshot.realized_pnl,
             drawdown_pct=snapshot.drawdown_pct,
+        )
+        stmt = pg_insert(PORTFOLIO_TABLE).values(**values).on_conflict_do_update(
+            index_elements=["time"],
+            set_={k: v for k, v in values.items() if k != "time"},
         )
 
         with self._engine.begin() as conn:
