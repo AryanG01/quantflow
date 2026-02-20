@@ -74,9 +74,13 @@ class DBPortfolioStateStore(PortfolioStateStore):
             realized_pnl=snapshot.realized_pnl,
             drawdown_pct=snapshot.drawdown_pct,
         )
-        stmt = pg_insert(PORTFOLIO_TABLE).values(**values).on_conflict_do_update(
-            index_elements=["time"],
-            set_={k: v for k, v in values.items() if k != "time"},
+        stmt = (
+            pg_insert(PORTFOLIO_TABLE)
+            .values(**values)
+            .on_conflict_do_update(
+                index_elements=["time"],
+                set_={k: v for k, v in values.items() if k != "time"},
+            )
         )
 
         with self._engine.begin() as conn:
