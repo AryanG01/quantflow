@@ -173,7 +173,9 @@ class SignalPipeline:
 
     # ── DB helpers ────────────────────────────────────────────
 
-    def _persist_signal(self, signal: object, components: dict[str, float], regime_value: str) -> None:
+    def _persist_signal(
+        self, signal: object, components: dict[str, float], regime_value: str
+    ) -> None:
         """Write a signal row to the signals table."""
         from packages.common.types import Signal
 
@@ -223,9 +225,16 @@ class SignalPipeline:
         except Exception as e:
             logger.warning("order_persist_failed", error=str(e))
 
-    def _persist_position(self, symbol: str, exchange: str, side: str,
-                          quantity: float, avg_entry_price: float,
-                          unrealized_pnl: float, realized_pnl: float) -> None:
+    def _persist_position(
+        self,
+        symbol: str,
+        exchange: str,
+        side: str,
+        quantity: float,
+        avg_entry_price: float,
+        unrealized_pnl: float,
+        realized_pnl: float,
+    ) -> None:
         """Upsert a position row (PostgreSQL ON CONFLICT)."""
         try:
             stmt = pg_insert(_positions_table).values(

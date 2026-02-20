@@ -930,7 +930,7 @@ class OrderCreateRequest(BaseModel):
 @app.post("/api/orders", response_model=TradeResponse)
 async def place_order(body: OrderCreateRequest) -> TradeResponse:
     """Place a paper trading order with pre-trade risk checks."""
-    from packages.common.types import Direction, OrderType, Signal, Side
+    from packages.common.types import Direction, OrderType, Side, Signal
     from packages.execution.order_manager import OrderManager
     from packages.risk.risk_checks import RiskChecker
 
@@ -979,7 +979,10 @@ async def place_order(body: OrderCreateRequest) -> TradeResponse:
         )
         trade_value = body.quantity * latest_price
         approved, reason = checker.check_pre_trade(
-            dummy_signal, snap, trade_value, data_timestamp=datetime.now(UTC),
+            dummy_signal,
+            snap,
+            trade_value,
+            data_timestamp=datetime.now(UTC),
         )
         if not approved:
             from fastapi import HTTPException
