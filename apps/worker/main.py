@@ -65,7 +65,11 @@ class Worker:
                 if inserted > 0:
                     logger.info("candles_ingested", symbol=symbol, count=inserted)
         except Exception as e:
-            logger.warning("candle_ingestion_failed", error=str(e))
+            err = str(e)
+            if "418" in err or "banned" in err.lower():
+                logger.warning("candle_ingestion_rate_limited", error=err[:120])
+            else:
+                logger.warning("candle_ingestion_failed", error=err)
 
     async def sentiment_task(self) -> None:
         """Sentiment cleanup — runs every 5 minutes.
