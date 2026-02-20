@@ -27,11 +27,19 @@ const regimeColors: Record<string, string> = {
   choppy: "text-[var(--color-regime-choppy)]",
 };
 
-const SYMBOLS = ["BTC/USDT", "ETH/USDT", "SOL/USDT"];
+const FALLBACK_SYMBOLS = ["BTC/USDT", "ETH/USDT", "SOL/USDT"];
 
 export default function TradesPage() {
   const { data: trades } = usePolling(useCallback(() => api.trades(), []), 10000);
   const [filter, setFilter] = useState<string>("all");
+
+  // Symbol list loaded from API
+  const [symbols, setSymbols] = useState<string[]>(FALLBACK_SYMBOLS);
+  useEffect(() => {
+    api.universe().then((u) => {
+      if (u?.symbols?.length) setSymbols(u.symbols);
+    });
+  }, []);
 
   // Order entry state
   const [orderSymbol, setOrderSymbol] = useState("BTC/USDT");
@@ -131,7 +139,7 @@ export default function TradesPage() {
               onChange={(e) => setOrderSymbol(e.target.value)}
               className="input"
             >
-              {SYMBOLS.map((s) => (
+              {symbols.map((s) => (
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>
@@ -262,7 +270,7 @@ export default function TradesPage() {
       {/* Filters */}
       <div className="flex gap-2 mb-4 flex-wrap items-center">
         <Filter size={14} className="text-[var(--color-text-muted)]" />
-        {["all", "winners", "losers", "BTC/USDT", "ETH/USDT", "SOL/USDT"].map((f) => (
+        {["all", "winners", "losers", ...symbols].map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}

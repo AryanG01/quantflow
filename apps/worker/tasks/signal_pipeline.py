@@ -8,6 +8,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+import numpy as np
 import pandas as pd
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -73,6 +74,9 @@ _orders_table = sa.Table(
     sa.Column("avg_fill_price", sa.Float),
     sa.Column("fees", sa.Float),
     sa.Column("signal_id", sa.Text),
+    sa.Column("signal_strength", sa.Float),
+    sa.Column("signal_regime", sa.Text),
+    sa.Column("realized_pnl", sa.Float),
 )
 
 _positions_table = sa.Table(
@@ -100,6 +104,13 @@ _risk_table = sa.Table(
     sa.Column("kill_switch_active", sa.Boolean),
 )
 
+_portfolio_snapshots_table = sa.Table(
+    "portfolio_snapshots",
+    _meta,
+    sa.Column("time", sa.DateTime(timezone=True)),
+    sa.Column("equity", sa.Float),
+)
+
 
 class SignalPipeline:
     """Orchestrates the full signal generation and execution pipeline."""
@@ -117,12 +128,19 @@ class SignalPipeline:
             bb_std=tech_cfg.bb_std,
             vol_window=tech_cfg.vol_window,
             vwap_period=tech_cfg.vwap_period,
+            bars_per_year=tech_cfg.bars_per_year,
         )
         norm_cfg = config.features.normalization
         self._normalizer = RollingZScoreNormalizer(window=norm_cfg.window, shift=norm_cfg.shift)
 
         # ML model (retrained periodically, loaded from registry in production)
-        self._model = LightGBMQuantileModel(quantiles=config.model.quantiles)
+        self._model = LightGBMQuantileModel(
+            quantiles=config.model.quantiles,
+            n_estimators=config.model.n_estimators,
+            learning_rate=config.model.learning_rate,
+            max_depth=config.model.max_depth,
+            num_leaves=config.model.num_leaves,
+        )
         self._model_trained = False
         self._model_registry = ModelRegistry(base_dir="models")
 
@@ -142,8 +160,17 @@ class SignalPipeline:
         # Signal fusion
         self._fusioner = RegimeGatedMoE(config.signals.fusion)
 
-        # Sentiment scorer (wired — events can be added externally)
-        self._sentiment_scorer = SentimentScorer()
+        # Sentiment scorer — wired to app-level SentimentConfig
+        from packages.signals.sentiment_scorer import SentimentConfig
+
+        self._sentiment_scorer = SentimentScorer(
+            SentimentConfig(
+                decay_halflife_hours=config.sentiment.decay_halflife_hours,
+                max_events_per_source=config.sentiment.max_events_per_source,
+                staleness_hours=config.sentiment.staleness_hours,
+                dedup_window_hours=config.sentiment.dedup_window_hours,
+            )
+        )
 
         # Risk
         self._risk_checker = RiskChecker(
@@ -159,19 +186,65 @@ class SignalPipeline:
         )
         self._drawdown_monitor = DrawdownMonitor(max_drawdown_pct=config.risk.max_drawdown_pct)
 
-        # Execution
-        self._order_manager = OrderManager(paper_mode=(config.execution.mode == "paper"))
+        # Execution — apply half-spread slippage on paper fills
+        self._order_manager = OrderManager(
+            paper_mode=(config.execution.mode == "paper"),
+            slippage_bps=config.execution.slippage_model.fixed_spread_bps,
+        )
 
         # Portfolio state backed by TimescaleDB
-        self._portfolio_store = DBPortfolioStateStore(engine, initial_equity=100_000.0)
+        self._portfolio_store = DBPortfolioStateStore(
+            engine, initial_equity=config.portfolio.initial_equity
+        )
 
         # Write initial snapshot so API shows LIVE (not demo) immediately on startup
         existing = self._portfolio_store.get_snapshot()
-        if existing.equity == 100_000.0 and existing.cash == 100_000.0:
+        if (
+            existing.equity == config.portfolio.initial_equity
+            and existing.cash == config.portfolio.initial_equity
+        ):
             self._portfolio_store.save_snapshot(existing)
             logger.info("initial_portfolio_snapshot_written", equity=existing.equity)
 
     # ── DB helpers ────────────────────────────────────────────
+
+    def _compute_portfolio_stats(self) -> tuple[float, float | None]:
+        """Compute annualized volatility and Sharpe from portfolio snapshot history.
+
+        Uses the last `vol_lookback_bars` equity snapshots. Returns (0.0, None)
+        when there is insufficient history.
+        """
+        n_bars = self._config.portfolio.vol_lookback_bars
+        query = sa.text("SELECT equity FROM portfolio_snapshots ORDER BY time DESC LIMIT :n")
+        try:
+            with self._engine.connect() as conn:
+                rows = conn.execute(query, {"n": n_bars}).fetchall()
+        except Exception:
+            return 0.0, None
+
+        if len(rows) < 5:
+            return 0.0, None
+
+        # Rows are DESC; reverse for chronological order
+        equities = np.array([r[0] for r in reversed(rows)], dtype=np.float64)
+        log_returns = np.diff(np.log(np.maximum(equities, 1e-10)))
+
+        std = float(np.std(log_returns))
+        if std == 0.0:
+            return 0.0, None
+
+        bars_per_year = self._config.features.technical.bars_per_year
+        ann_factor = float(np.sqrt(bars_per_year))
+        vol = std * ann_factor
+        sharpe = float(np.mean(log_returns)) / std * ann_factor
+        return vol, sharpe
+
+    def _taker_fee_rate(self) -> float:
+        """Return taker fee as a fraction from config (e.g. 10 bps → 0.001)."""
+        from packages.common.config import ExchangeConfig
+
+        exchange_cfg = self._config.exchanges.get("binance", ExchangeConfig())
+        return exchange_cfg.fees_bps.taker / 10_000.0
 
     def _persist_signal(
         self, signal: object, components: dict[str, float], regime_value: str
@@ -197,7 +270,14 @@ class SignalPipeline:
         except Exception as e:
             logger.warning("signal_persist_failed", error=str(e))
 
-    def _persist_order(self, order: object, price: float) -> None:
+    def _persist_order(
+        self,
+        order: object,
+        price: float,
+        signal_strength: float = 0.0,
+        signal_regime: str = "unknown",
+        realized_pnl: float = 0.0,
+    ) -> None:
         """Write an order row to the orders table."""
         from packages.common.types import Order
 
@@ -219,11 +299,28 @@ class SignalPipeline:
                         avg_fill_price=o.avg_fill_price,
                         fees=o.fees,
                         signal_id=o.signal_id,
+                        signal_strength=signal_strength,
+                        signal_regime=signal_regime,
+                        realized_pnl=realized_pnl,
                     )
                 )
             logger.debug("order_persisted", order_id=o.id)
         except Exception as e:
             logger.warning("order_persist_failed", error=str(e))
+
+    def _get_position_entry_price(self, symbol: str) -> float | None:
+        """Look up current avg_entry_price for a symbol from positions table."""
+        query = sa.select(_positions_table.c.avg_entry_price).where(
+            _positions_table.c.symbol == symbol
+        )
+        try:
+            with self._engine.connect() as conn:
+                row = conn.execute(query).fetchone()
+            if row and row[0]:
+                return float(row[0])
+        except Exception:
+            pass
+        return None
 
     def _persist_position(
         self,
@@ -267,6 +364,7 @@ class SignalPipeline:
     def _persist_risk_metrics(self) -> None:
         """Write current risk metrics to the risk_metrics table."""
         snapshot = self._portfolio_store.get_snapshot()
+        portfolio_vol, sharpe_ratio = self._compute_portfolio_stats()
         try:
             with self._engine.begin() as conn:
                 conn.execute(
@@ -274,8 +372,8 @@ class SignalPipeline:
                         time=datetime.now(UTC),
                         max_drawdown_pct=self._config.risk.max_drawdown_pct,
                         current_drawdown_pct=self._drawdown_monitor.current_drawdown,
-                        portfolio_vol=0.0,  # computed from returns history if available
-                        sharpe_ratio=None,
+                        portfolio_vol=portfolio_vol,
+                        sharpe_ratio=sharpe_ratio,
                         concentration_pct=(
                             snapshot.positions_value / snapshot.equity * 100
                             if snapshot.equity > 0
@@ -290,7 +388,7 @@ class SignalPipeline:
 
     # ── Data fetching ─────────────────────────────────────────
 
-    def _fetch_candles(self, symbol: str, lookback_bars: int = 1200) -> pd.DataFrame:
+    def _fetch_candles(self, symbol: str) -> pd.DataFrame:
         """Fetch recent candles from the database."""
         query = sa.text(
             """
@@ -307,7 +405,7 @@ class SignalPipeline:
                 {
                     "symbol": symbol,
                     "timeframe": self._config.universe.timeframe,
-                    "limit": lookback_bars,
+                    "limit": self._config.portfolio.signal_lookback_bars,
                 },
             )
             rows = result.fetchall()
@@ -333,7 +431,7 @@ class SignalPipeline:
         clean_features = normalized[valid_mask]
         clean_candles = candles[valid_mask]
 
-        if len(clean_features) < 500:
+        if len(clean_features) < self._config.portfolio.min_train_bars:
             logger.warning("insufficient_data_for_training", n=len(clean_features))
             return
 
@@ -348,12 +446,10 @@ class SignalPipeline:
         if not self._model_trained:
             labels = triple_barrier_labels(
                 clean_candles["close"],
-                profit_taking_pct=self._config.model.labeling.profit_taking_pct,
-                stop_loss_pct=self._config.model.labeling.stop_loss_pct,
-                max_holding_bars=self._config.model.labeling.max_holding_bars,
+                config=self._config.model.labeling,
             )
             valid_labels = labels >= 0
-            if valid_labels.sum() > 200:
+            if valid_labels.sum() > self._config.portfolio.min_valid_labels:
                 self._model.train(
                     clean_features[valid_labels],
                     labels[valid_labels],
@@ -403,7 +499,12 @@ class SignalPipeline:
                 predictions = self._model.predict(last_valid)
                 pred = predictions[0]
                 iqr = pred.quantiles.get("q75", 1.0) - pred.quantiles.get("q25", 0.0)
-                confidence = uncertainty_to_confidence(iqr)
+                fusion_cfg = self._config.signals.fusion
+                confidence = uncertainty_to_confidence(
+                    iqr,
+                    min_iqr=fusion_cfg.confidence_min_iqr,
+                    max_iqr=fusion_cfg.confidence_max_iqr,
+                )
                 ml_score = (pred.label - 1) / 1.0  # map 0,1,2 → -1,0,1
             else:
                 confidence = 0.3
@@ -492,14 +593,34 @@ class SignalPipeline:
                 status=order.status.value,
             )
 
-            # 10b. Persist order to DB
-            self._persist_order(order, current_price)
-
-            # 10c. Update portfolio state after fill
+            # 10b. Compute realized PnL for sell orders
+            trade_realized_pnl = 0.0
             if order.status == OrderStatus.FILLED:
                 fill_price = order.avg_fill_price or current_price
                 fill_cost = fill_price * order.filled_qty
-                fees = fill_cost * 0.001  # 10 bps fee model
+                fee_rate = self._taker_fee_rate()
+                fees = fill_cost * fee_rate
+
+                if side == Side.SELL:
+                    entry_price = self._get_position_entry_price(symbol)
+                    if entry_price and entry_price > 0:
+                        trade_realized_pnl = (fill_price - entry_price) * order.filled_qty - fees
+
+            # 10c. Persist order with signal metadata
+            self._persist_order(
+                order,
+                current_price,
+                signal_strength=signal.strength,
+                signal_regime=regime.value,
+                realized_pnl=trade_realized_pnl,
+            )
+
+            # 10d. Update portfolio state after fill
+            if order.status == OrderStatus.FILLED:
+                fill_price = order.avg_fill_price or current_price
+                fill_cost = fill_price * order.filled_qty
+                fee_rate = self._taker_fee_rate()
+                fees = fill_cost * fee_rate
 
                 prev = portfolio
                 if side == Side.BUY:
@@ -518,12 +639,12 @@ class SignalPipeline:
                     cash=new_cash,
                     positions_value=new_positions_value,
                     unrealized_pnl=0.0,
-                    realized_pnl=prev.realized_pnl + (fees * -1),
+                    realized_pnl=prev.realized_pnl + trade_realized_pnl - fees,
                     drawdown_pct=dd,
                 )
                 self._portfolio_store.save_snapshot(new_snapshot)
 
-                # 10d. Upsert position
+                # 10e. Upsert position
                 pos_side = signal.direction.value
                 self._persist_position(
                     symbol=symbol,
@@ -532,7 +653,7 @@ class SignalPipeline:
                     quantity=order.filled_qty,
                     avg_entry_price=fill_price,
                     unrealized_pnl=0.0,
-                    realized_pnl=0.0,
+                    realized_pnl=trade_realized_pnl,
                 )
 
         except Exception as e:

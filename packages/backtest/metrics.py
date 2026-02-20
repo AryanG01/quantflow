@@ -7,7 +7,21 @@ from dataclasses import dataclass
 import numpy as np
 import numpy.typing as npt
 
-ANNUALIZATION_FACTOR_4H = np.sqrt(6 * 365)  # 6 bars/day * 365 days
+ANNUALIZATION_FACTOR_4H = np.sqrt(6 * 365)  # 6 bars/day × 365 days (4h default)
+
+_BARS_PER_YEAR: dict[str, int] = {
+    "1m": 525_600,
+    "5m": 105_120,
+    "15m": 35_040,
+    "1h": 8_760,
+    "4h": 2_190,
+    "1d": 365,
+}
+
+
+def bars_per_year(timeframe: str = "4h") -> int:
+    """Return the number of bars per calendar year for a given timeframe string."""
+    return _BARS_PER_YEAR.get(timeframe.lower(), 2_190)
 
 
 @dataclass
@@ -98,16 +112,18 @@ def compute_all_metrics(
     trade_returns: npt.NDArray[np.float64],
     total_trades: int,
     n_bars: int,
+    timeframe: str = "4h",
 ) -> BacktestMetrics:
     """Compute all backtest metrics."""
     total_return = float(equity_curve[-1] / equity_curve[0] - 1) if len(equity_curve) > 0 else 0.0
 
-    bars_per_year = 6 * 365  # 4h bars
-    n_years = n_bars / bars_per_year if bars_per_year > 0 else 1.0
+    _bpy = bars_per_year(timeframe)
+    n_years = n_bars / _bpy if _bpy > 0 else 1.0
     annualized_return = (1 + total_return) ** (1 / n_years) - 1 if n_years > 0 else 0.0
 
-    sharpe = compute_sharpe(returns)
-    sortino = compute_sortino(returns)
+    ann_factor = float(np.sqrt(_bpy))
+    sharpe = compute_sharpe(returns, annualize=ann_factor)
+    sortino = compute_sortino(returns, annualize=ann_factor)
     max_dd, max_dd_duration = compute_max_drawdown(equity_curve)
     hit_rate = compute_hit_rate(trade_returns)
     profit_factor = compute_profit_factor(trade_returns)

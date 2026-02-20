@@ -16,12 +16,16 @@ import numpy.typing as npt
 if TYPE_CHECKING:
     import pandas as pd
 
+    from packages.common.config import LabelingConfig
+
 
 def triple_barrier_labels(
     close: pd.Series,
     profit_taking_pct: float = 0.03,
     stop_loss_pct: float = 0.015,
     max_holding_bars: int = 12,
+    neutral_pct: float = 0.005,
+    config: LabelingConfig | None = None,
 ) -> npt.NDArray[np.int64]:
     """Apply triple-barrier labeling to a price series.
 
@@ -35,6 +39,12 @@ def triple_barrier_labels(
         Array of labels: 0=down, 1=neutral, 2=up
         NaN-equivalent (-1) for bars where labeling is impossible (end of series)
     """
+    if config is not None:
+        profit_taking_pct = config.profit_taking_pct
+        stop_loss_pct = config.stop_loss_pct
+        max_holding_bars = config.max_holding_bars
+        neutral_pct = config.neutral_pct
+
     n = len(close)
     prices = close.values.astype(np.float64)
     labels = np.full(n, -1, dtype=np.int64)
@@ -63,9 +73,9 @@ def triple_barrier_labels(
         if not label_assigned:
             # Time barrier hit: label based on return
             final_return = prices[end_idx] / entry_price - 1
-            if final_return > 0.005:  # small positive threshold
+            if final_return > neutral_pct:
                 labels[i] = 2
-            elif final_return < -0.005:
+            elif final_return < -neutral_pct:
                 labels[i] = 0
             else:
                 labels[i] = 1  # neutral

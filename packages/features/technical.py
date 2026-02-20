@@ -23,6 +23,7 @@ class TechnicalFeatures(FeatureComputer):
         bb_std: float = 2.0,
         vol_window: int = 24,
         vwap_period: int = 24,
+        bars_per_year: int = 2190,
     ) -> None:
         self._rsi_period = rsi_period
         self._atr_period = atr_period
@@ -30,6 +31,7 @@ class TechnicalFeatures(FeatureComputer):
         self._bb_std = bb_std
         self._vol_window = vol_window
         self._vwap_period = vwap_period
+        self._bars_per_year = bars_per_year
 
     def compute(self, candles: pd.DataFrame) -> pd.DataFrame:
         close = candles["close"]
@@ -57,8 +59,8 @@ class TechnicalFeatures(FeatureComputer):
         # Realized volatility (annualized from bar returns)
         log_ret = features["log_returns"]
         features["realized_vol"] = log_ret.rolling(self._vol_window).std() * np.sqrt(
-            6 * 365
-        )  # 4h bars
+            self._bars_per_year
+        )
 
         return features
 

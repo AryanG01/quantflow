@@ -16,6 +16,7 @@ from packages.common.logging import get_logger
 if TYPE_CHECKING:
     import pandas as pd
 
+    from packages.common.config import WalkForwardConfig
     from packages.models.interfaces import ModelPredictor
 
 logger = get_logger(__name__)
@@ -49,6 +50,7 @@ def generate_walk_forward_splits(
     test_bars: int = 100,
     purge_bars: int = 3,
     embargo_bars: int = 2,
+    config: WalkForwardConfig | None = None,
 ) -> list[WalkForwardSplit]:
     """Generate walk-forward train/test splits.
 
@@ -66,6 +68,12 @@ def generate_walk_forward_splits(
     Returns:
         List of WalkForwardSplit objects
     """
+    if config is not None:
+        train_bars = config.train_bars
+        test_bars = config.test_bars
+        purge_bars = config.purge_bars
+        embargo_bars = config.embargo_bars
+
     splits = []
     fold_idx = 0
     start = 0
@@ -104,6 +112,7 @@ def run_walk_forward(
     test_bars: int = 100,
     purge_bars: int = 3,
     embargo_bars: int = 2,
+    config: WalkForwardConfig | None = None,
 ) -> list[WalkForwardResult]:
     """Run walk-forward validation.
 
@@ -127,6 +136,7 @@ def run_walk_forward(
         test_bars=test_bars,
         purge_bars=purge_bars,
         embargo_bars=embargo_bars,
+        config=config,
     )
 
     if not splits:

@@ -4,11 +4,25 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from enum import Enum
 from typing import Any
 
 import structlog
 
 logger = structlog.get_logger(__name__)
+
+
+class AlertSeverity(Enum):
+    """Alert severity levels with built-in cooldown periods."""
+
+    LOW = 120  # minutes
+    MEDIUM = 60  # minutes
+    HIGH = 15  # minutes
+    CRITICAL = 0  # no cooldown — fire every evaluation cycle
+
+    @property
+    def cooldown_minutes(self) -> int:
+        return self.value
 
 
 @dataclass
@@ -18,7 +32,7 @@ class AlertRule:
     name: str
     condition_fn: Any  # Callable[[], bool]
     message_template: str
-    cooldown_minutes: int = 60
+    severity: AlertSeverity = AlertSeverity.MEDIUM
 
 
 class AlertManager:
@@ -38,15 +52,21 @@ class AlertManager:
         fired = []
 
         for rule in self._rules:
+            cooldown = rule.severity.cooldown_minutes
             last = self._last_fired.get(rule.name)
-            if last and (now - last).total_seconds() < rule.cooldown_minutes * 60:
+            if cooldown > 0 and last and (now - last).total_seconds() < cooldown * 60:
                 continue
 
             try:
                 if rule.condition_fn():
                     self._last_fired[rule.name] = now
                     fired.append(rule.message_template)
-                    logger.warning("alert_fired", rule=rule.name, message=rule.message_template)
+                    logger.warning(
+                        "alert_fired",
+                        rule=rule.name,
+                        severity=rule.severity.name,
+                        message=rule.message_template,
+                    )
             except Exception as e:
                 logger.error("alert_eval_error", rule=rule.name, error=str(e))
 

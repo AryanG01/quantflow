@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import numpy as np
 import numpy.typing as npt
+
+if TYPE_CHECKING:
+    from packages.common.config import ExchangeFees, SlippageModelConfig
 
 
 @dataclass(frozen=True)
@@ -16,6 +20,20 @@ class CostModelConfig:
     linear_impact_bps: float = 2.0
     maker_fee_bps: float = 10.0
     taker_fee_bps: float = 10.0
+
+    @classmethod
+    def from_app_config(
+        cls,
+        slippage: SlippageModelConfig,
+        fees: ExchangeFees,
+    ) -> CostModelConfig:
+        """Build from AppConfig slippage and exchange fee sub-configs."""
+        return cls(
+            fixed_spread_bps=slippage.fixed_spread_bps,
+            linear_impact_bps=slippage.linear_impact_bps,
+            maker_fee_bps=fees.maker,
+            taker_fee_bps=fees.taker,
+        )
 
 
 class CostModel:

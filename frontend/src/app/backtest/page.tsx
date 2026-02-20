@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api, BacktestResult } from "@/lib/api";
 import { usePolling } from "@/hooks/usePolling";
 import { BarChart3 } from "lucide-react";
@@ -39,13 +39,21 @@ const LOOKBACK_OPTIONS = [
   { value: 730, label: "2 years" },
 ];
 
-const SYMBOLS = ["BTC/USDT", "ETH/USDT", "SOL/USDT"];
+const FALLBACK_SYMBOLS = ["BTC/USDT", "ETH/USDT", "SOL/USDT"];
 
 export default function BacktestPage() {
   const { data: demoResults } = usePolling(
     useCallback(() => api.backtestResults(), []),
     30000,
   );
+
+  // Symbol list loaded from API
+  const [symbols, setSymbols] = useState<string[]>(FALLBACK_SYMBOLS);
+  useEffect(() => {
+    api.universe().then((u) => {
+      if (u?.symbols?.length) setSymbols(u.symbols);
+    });
+  }, []);
 
   // Run form state
   const [symbol, setSymbol] = useState("BTC/USDT");
@@ -89,7 +97,7 @@ export default function BacktestPage() {
           <div>
             <label className="text-xs text-[var(--color-text-muted)] block mb-1.5">Symbol</label>
             <select value={symbol} onChange={(e) => setSymbol(e.target.value)} className="input">
-              {SYMBOLS.map((s) => (
+              {symbols.map((s) => (
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>

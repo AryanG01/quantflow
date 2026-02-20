@@ -95,6 +95,41 @@
 - [x] API: `GET /api/backtest-results` returns `_backtest_history` first, demo as fallback
 - [x] API: `POST /api/orders` pre-trade risk gate via `RiskChecker.check_pre_trade()`
 
+### Hardcoded Logic Removal & Config-Driven Cleanup ✅ (2026-02-20)
+
+All 30+ hardcoded values across the codebase moved to `AppConfig` + `config/default.yaml`:
+
+**Critical fixes (visible bugs):**
+- [x] **T1-A** `_persist_risk_metrics()` now computes real portfolio vol & Sharpe from last 90 equity snapshots (was always 0.0/None)
+- [x] **T1-B** `orders` table: new columns `signal_strength`, `signal_regime`, `realized_pnl` (migration 002). `_persist_order()` writes signal metadata; `_get_db_trades()` reads them. Sell-side `realized_pnl` computed at fill time.
+- [x] **T1-C** Fee model centralized: `0.001` hardcode replaced by `config.exchanges["binance"].fees_bps.taker / 10_000` in both `signal_pipeline.py` and `api/main.py`
+
+**Config-driven parameters:**
+- [x] **T2-A** `WorkerConfig` — scheduling intervals (`signal_interval_hours`, `candle_interval_hours`, `sentiment_interval_minutes`, `health_interval_seconds`, `loop_sleep_seconds`, `candle_backfill_hours`, `sentiment_retention_hours`)
+- [x] **T2-B** `PortfolioConfig` — `initial_equity`, `signal_lookback_bars`, `min_train_bars`, `min_valid_labels`, `vol_lookback_bars`
+- [x] **T2-C** `DEFAULT_REGIME_WEIGHTS` dict removed from `signal_fusion.py`; single source of truth in `SignalFusionConfig.regime_weights` (default_factory)
+- [x] **T2-D** CORS origins read from `CORS_ORIGINS` env var (comma-separated) with config fallback; API version from `ApiConfig.version`
+- [x] **T2-E** Paper fills apply half-spread slippage from `ExecutionConfig.slippage_model.fixed_spread_bps` (via `OrderManager.slippage_bps`)
+- [x] **T2-F** Signal direction threshold `0.05` → `SignalFusionConfig.direction_threshold`
+- [x] **T2-G** `_DEMO_PRICES` removed; prices now DB → Binance public API (cached 60s) → empty dict. `_BASE_PRICES` used only for GBM simulation neutral levels. Demo data is lazy (`_get_demo()`)
+
+**Strategy correctness:**
+- [x] **T3-A** `realized_vol` annualization uses `TechnicalFeaturesConfig.bars_per_year` (default 2190 = 6×365) instead of magic number
+- [x] **T3-B** LightGBM hyperparams (`n_estimators`, `learning_rate`, `max_depth`, `num_leaves`) moved to `ModelConfig`; pipeline passes them through
+- [x] **T3-C** `generate_walk_forward_splits` + `run_walk_forward` accept optional `config: WalkForwardConfig` param
+- [x] **T3-D** `triple_barrier_labels` accepts optional `config: LabelingConfig`; `neutral_pct` added to `LabelingConfig`
+- [x] **T3-E** `CostModelConfig.from_app_config(slippage, fees)` factory added
+- [x] **T3-F** `compute_all_metrics` accepts `timeframe` param; derives `bars_per_year` via lookup table; `bars_per_year()` helper added to `metrics.py`
+- [x] **T3-G** `SentimentConfig` added to `AppConfig`; `SentimentScorer` initialized from it in `SignalPipeline.__init__`
+- [x] **T3-H** New `GET /api/config/universe` endpoint; `Universe` type in frontend api.ts; backtest + trades pages load symbols from API (fallback to hardcoded list)
+- [x] **T3-I** `FeaturesConfig.use_orderbook: bool = False` added; default YAML sets it false
+- [x] **T3-J** `SignalFusionConfig.confidence_min_iqr` + `confidence_max_iqr` added; wired to `uncertainty_to_confidence()` in pipeline
+- [x] **T3-K** `AlertSeverity` enum added with severity-based cooldown (`CRITICAL=0min`, `HIGH=15min`, `MEDIUM=60min`, `LOW=120min`); `AlertRule` uses severity instead of flat `cooldown_minutes`
+
+**New configs added to `AppConfig`:** `WorkerConfig`, `PortfolioConfig`, `ApiConfig`, `SentimentConfig`
+**New migration:** `migrations/002_orders_signal_linkage.sql`
+**Tests:** 72/72 passing after all changes
+
 ### Cloud Deployment ✅
 - [x] `railway.json` — Railway service config: DOCKERFILE builder, uvicorn start, `/api/health` healthcheck
 - [x] `Dockerfile` — `ENV PYTHONPATH=/app` added so `packages/` and `apps/` resolve in Railway containers

@@ -2,6 +2,9 @@
 
 The core differentiator: regime determines which signal components
 get which weights. Choppy regime also scales down position size.
+
+All defaults live in SignalFusionConfig (packages/common/config.py) —
+there is no secondary DEFAULT_REGIME_WEIGHTS dict here.
 """
 
 from __future__ import annotations
@@ -11,12 +14,6 @@ from datetime import UTC, datetime
 from packages.common.config import RegimeWeights, SignalFusionConfig
 from packages.common.types import Direction, Regime, Signal
 from packages.signals.interfaces import SignalCombiner
-
-DEFAULT_REGIME_WEIGHTS: dict[str, RegimeWeights] = {
-    "trending": RegimeWeights(technical=0.4, ml=0.5, sentiment=0.1),
-    "mean_reverting": RegimeWeights(technical=0.5, ml=0.3, sentiment=0.2),
-    "choppy": RegimeWeights(technical=0.3, ml=0.3, sentiment=0.4),
-}
 
 
 class RegimeGatedMoE(SignalCombiner):
@@ -29,11 +26,10 @@ class RegimeGatedMoE(SignalCombiner):
     """
 
     def __init__(self, config: SignalFusionConfig | None = None) -> None:
-        if config and config.regime_weights:
-            self._weights = config.regime_weights
-        else:
-            self._weights = DEFAULT_REGIME_WEIGHTS
-        self._choppy_scale = config.choppy_scale if config else 0.3
+        cfg = config or SignalFusionConfig()
+        self._weights = cfg.regime_weights
+        self._choppy_scale = cfg.choppy_scale
+        self._direction_threshold = cfg.direction_threshold
 
     def combine(
         self,
@@ -53,7 +49,11 @@ class RegimeGatedMoE(SignalCombiner):
         Returns:
             Combined Signal with direction, strength, and confidence
         """
-        weights = self._weights.get(regime.value, DEFAULT_REGIME_WEIGHTS["choppy"])
+        # Fall back to choppy weights when regime key is missing
+        fallback = self._weights.get(
+            "choppy", RegimeWeights(technical=0.33, ml=0.34, sentiment=0.33)
+        )
+        weights = self._weights.get(regime.value, fallback)
 
         # Weighted sum of components
         raw_strength = (
@@ -72,10 +72,10 @@ class RegimeGatedMoE(SignalCombiner):
         # Clamp to [-1, 1]
         strength = max(-1.0, min(1.0, strength))
 
-        # Determine direction
-        if strength > 0.05:
+        # Determine direction from config-driven threshold
+        if strength > self._direction_threshold:
             direction = Direction.LONG
-        elif strength < -0.05:
+        elif strength < -self._direction_threshold:
             direction = Direction.SHORT
         else:
             direction = Direction.FLAT

@@ -8,6 +8,7 @@ universe:
   timeframe: 4h
   lookback_days: 730
 features:
+  use_orderbook: false
   technical:
     rsi_period: 14
     atr_period: 14
@@ -15,12 +16,17 @@ features:
     bb_std: 2.0
     vol_window: 24
     vwap_period: 24
+    bars_per_year: 2190
   normalization:
     method: rolling_zscore
     window: 100
     shift: 1
 model:
   type: lightgbm_quantile
+  n_estimators: 200
+  learning_rate: 0.05
+  max_depth: 6
+  num_leaves: 31
   quantiles:
   - 0.1
   - 0.25
@@ -37,6 +43,7 @@ model:
     profit_taking_pct: 0.03
     stop_loss_pct: 0.015
     max_holding_bars: 12
+    neutral_pct: 0.005
 regime:
   model: gaussian_hmm
   n_states: 3
@@ -65,6 +72,9 @@ signals:
         ml: 0.3
         sentiment: 0.4
     choppy_scale: 0.3
+    direction_threshold: 0.05
+    confidence_min_iqr: 0.2
+    confidence_max_iqr: 1.5
 risk:
   vol_target: 0.15
   max_position_pct: 0.25
@@ -106,3 +116,24 @@ database:
   sslmode: ${POSTGRES_SSLMODE:}
 redis:
   url: ${REDIS_URL:redis://localhost:6379/0}
+worker:
+  signal_interval_hours: 4
+  candle_interval_hours: 1
+  sentiment_interval_minutes: 5
+  health_interval_seconds: 60
+  loop_sleep_seconds: 10
+  candle_backfill_hours: 2
+  sentiment_retention_hours: 24
+portfolio:
+  initial_equity: 100000.0
+  signal_lookback_bars: 1200
+  min_train_bars: 500
+  min_valid_labels: 200
+  vol_lookback_bars: 90
+api:
+  version: 0.1.0
+sentiment:
+  decay_halflife_hours: 12.0
+  max_events_per_source: 10
+  staleness_hours: 24.0
+  dedup_window_hours: 6.0

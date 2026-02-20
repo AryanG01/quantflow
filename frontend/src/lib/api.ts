@@ -81,6 +81,11 @@ export interface SystemConfig {
   regime: Record<string, unknown>;
 }
 
+export interface Universe {
+  symbols: string[];
+  timeframe: string;
+}
+
 export interface HealthStatus {
   status: string;
   timestamp: string;
@@ -156,6 +161,7 @@ export const api = {
   backtestResults: () => fetchJson<BacktestResult[]>("/backtest-results"),
   trades: () => fetchJson<Trade[]>("/trades"),
   config: () => fetchJson<SystemConfig>("/config"),
+  universe: () => fetchJson<Universe>("/config/universe"),
   prices: () => fetchJson<Record<string, number>>("/prices"),
   updateConfig: (body: Partial<SystemConfig>) =>
     patchJson<SystemConfig>("/config", body),

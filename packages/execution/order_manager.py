@@ -25,11 +25,13 @@ class OrderManager:
         paper_mode: bool = True,
         max_retries: int = 3,
         timeout_seconds: int = 120,
+        slippage_bps: float = 5.0,
     ) -> None:
         self._executor = executor
         self._paper_mode = paper_mode
         self._max_retries = max_retries
         self._timeout_seconds = timeout_seconds
+        self._slippage_bps = slippage_bps
         self._open_orders: dict[str, Order] = {}
 
     async def submit(
@@ -76,8 +78,19 @@ class OrderManager:
         return filled_order
 
     def _simulate_fill(self, order: Order) -> Order:
-        """Simulate an immediate fill for paper trading."""
-        fill_price = order.price if order.price else 0.0
+        """Simulate an immediate fill for paper trading.
+
+        Applies a half-spread slippage: buys fill slightly above price,
+        sells slightly below, using the configured slippage_bps.
+        """
+        fill_price = order.price if order.price and order.price > 0 else 0.0
+
+        if fill_price > 0 and self._slippage_bps > 0:
+            slip = self._slippage_bps / 10_000.0
+            if order.side == Side.BUY:
+                fill_price *= 1.0 + slip
+            else:
+                fill_price *= 1.0 - slip
 
         filled = order.model_copy(
             update={

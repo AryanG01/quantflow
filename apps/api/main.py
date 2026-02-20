@@ -7,8 +7,12 @@ back to demo data otherwise.
 
 from __future__ import annotations
 
+import json
 import math
+import os
 import random
+import time
+import urllib.request
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
@@ -113,6 +117,9 @@ _orders_table = sa.Table(
     sa.Column("avg_fill_price", sa.Float),
     sa.Column("fees", sa.Float),
     sa.Column("signal_id", sa.Text),
+    sa.Column("signal_strength", sa.Float),
+    sa.Column("signal_regime", sa.Text),
+    sa.Column("realized_pnl", sa.Float),
 )
 
 
@@ -448,32 +455,89 @@ def _generate_demo_data() -> dict[str, Any]:
     }
 
 
-_demo = _generate_demo_data()
+_demo: dict[str, Any] | None = None
+
+
+def _get_demo() -> dict[str, Any]:
+    """Return demo data, generating it lazily on first call."""
+    global _demo
+    if _demo is None:
+        _demo = _generate_demo_data()
+    return _demo
 
 
 # ── DB query helpers ─────────────────────────────────────────
 
 
-_DEMO_PRICES = {"BTC/USDT": 98_150.0, "ETH/USDT": 3_380.0, "SOL/USDT": 182.0}
+# Neutral base prices used only for synthetic demo candle generation (GBM simulation).
+# These are round-number estimates — the chart shape matters, not the exact level.
+_BASE_PRICES: dict[str, float] = {
+    "BTC/USDT": 50_000.0,
+    "ETH/USDT": 3_000.0,
+    "SOL/USDT": 150.0,
+    "AVAX/USDT": 30.0,
+    "DOGE/USDT": 0.15,
+}
+
+# Module-level price cache for Binance public API fallback
+_price_cache: dict[str, float] = {}
+_price_cache_ts: float = 0.0
+_PRICE_CACHE_TTL = 60.0  # seconds
+
+
+def _fetch_binance_prices() -> dict[str, float]:
+    """Fetch spot prices from Binance public REST API (no auth required).
+
+    Returns an empty dict if the request fails or times out.
+    """
+    try:
+        url = "https://api.binance.com/api/v3/ticker/price"
+        with urllib.request.urlopen(url, timeout=3) as resp:  # noqa: S310
+            data: list[dict[str, str]] = json.loads(resp.read())
+        result: dict[str, float] = {}
+        for item in data:
+            sym = item["symbol"]
+            for quote in ("USDT", "BUSD"):
+                if sym.endswith(quote):
+                    base = sym[: -len(quote)]
+                    result[f"{base}/{quote}"] = float(item["price"])
+                    break
+        return result
+    except Exception:
+        return {}
 
 
 def _get_latest_prices() -> dict[str, float]:
-    """Get latest close price per symbol from candles."""
+    """Get latest close price per symbol: DB → Binance API → empty dict."""
+    global _price_cache, _price_cache_ts
+
     query = (
         sa.select(_candles.c.symbol, _candles.c.close)
         .distinct(_candles.c.symbol)
         .order_by(_candles.c.symbol, _candles.c.time.desc())
     )
     rows = _db_query(query)
-    if not rows:
-        return dict(_DEMO_PRICES)
-    return {row.symbol: row.close for row in rows}
+    if rows:
+        return {row.symbol: row.close for row in rows}
+
+    # DB unavailable — try cached or fresh Binance prices
+    now = time.monotonic()
+    if now - _price_cache_ts < _PRICE_CACHE_TTL and _price_cache:
+        return dict(_price_cache)
+
+    fetched = _fetch_binance_prices()
+    if fetched:
+        _price_cache = fetched
+        _price_cache_ts = now
+        return dict(_price_cache)
+
+    return {}
 
 
 def _generate_demo_candles(symbol: str, lookback_days: int) -> list[dict[str, Any]]:
     """Generate synthetic OHLCV candles using a GBM random walk."""
     rng = random.Random(hash(symbol) + lookback_days)
-    base_price = _DEMO_PRICES.get(symbol, 50_000.0)
+    base_price = _BASE_PRICES.get(symbol, 50_000.0)
     n_bars = lookback_days * 6  # 4h candles
     now = datetime.now(UTC)
 
@@ -629,9 +693,9 @@ def _get_db_trades() -> list[TradeResponse] | None:
             quantity=r.filled_qty or r.quantity,
             price=r.avg_fill_price or r.price or 0,
             fees=r.fees or 0,
-            pnl=0,
-            signal_strength=0,
-            regime="unknown",
+            pnl=r.realized_pnl or 0.0,
+            signal_strength=r.signal_strength or 0.0,
+            regime=r.signal_regime or "unknown",
         )
         for r in rows
     ]
@@ -649,15 +713,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
         _engine.dispose()
 
 
-app = FastAPI(title="AI Trading System API", version="0.1.0", lifespan=lifespan)
+_api_version = _cfg.api.version
+
+# CORS: comma-separated origins in CORS_ORIGINS env var override config defaults
+_cors_origins_raw = os.environ.get("CORS_ORIGINS", "")
+_cors_origins = (
+    [o.strip() for o in _cors_origins_raw.split(",") if o.strip()]
+    if _cors_origins_raw
+    else _cfg.api.cors_origins
+)
+
+app = FastAPI(title="AI Trading System API", version=_api_version, lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:3000",
-        "http://localhost:3001",
-        "http://localhost:4000",
-    ],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -674,7 +744,7 @@ async def health() -> HealthResponse:
     return HealthResponse(
         status="ok",
         timestamp=now.isoformat(),
-        version="0.1.0",
+        version=_api_version,
         uptime_seconds=(now - _start_time).total_seconds(),
         db_connected=db_ok,
         candle_count=_get_candle_count() if db_ok else 0,
@@ -684,7 +754,7 @@ async def health() -> HealthResponse:
 @app.get("/api/signals", response_model=list[SignalResponse])
 async def get_signals() -> list[SignalResponse]:
     db_signals = _get_db_signals()
-    return db_signals if db_signals else _demo["signals"]
+    return db_signals if db_signals else _get_demo()["signals"]
 
 
 @app.get("/api/signals/{symbol}", response_model=SignalResponse | None)
@@ -692,12 +762,12 @@ async def get_signal(symbol: str) -> SignalResponse | None:
     db_signals = _get_db_signals()
     if db_signals:
         return next((s for s in db_signals if s.symbol == symbol), None)
-    return next((s for s in _demo["signals"] if s.symbol == symbol), None)
+    return next((s for s in _get_demo()["signals"] if s.symbol == symbol), None)
 
 
 @app.get("/api/portfolio", response_model=PortfolioResponse | None)
 async def get_portfolio() -> PortfolioResponse | None:
-    return _get_db_portfolio() or _demo["portfolio"]
+    return _get_db_portfolio() or _get_demo()["portfolio"]
 
 
 @app.get("/api/positions", response_model=list[PositionResponse])
@@ -708,12 +778,12 @@ async def get_positions() -> list[PositionResponse]:
     # Worker is live (portfolio exists) but no positions yet — return empty, not demo
     if _get_db_portfolio() is not None:
         return []
-    return cast("list[PositionResponse]", _demo["positions"])
+    return cast("list[PositionResponse]", _get_demo()["positions"])
 
 
 @app.get("/api/risk", response_model=RiskMetricsResponse | None)
 async def get_risk() -> RiskMetricsResponse | None:
-    return _get_db_risk() or _demo["risk"]
+    return _get_db_risk() or _get_demo()["risk"]
 
 
 @app.get("/api/regime", response_model=RegimeResponse | None)
@@ -727,18 +797,18 @@ async def get_regime() -> RegimeResponse | None:
             confidence=current.confidence,
             history=[{"timestamp": s.timestamp, "regime": s.regime} for s in db_signals],
         )
-    return cast("RegimeResponse", _demo["regime"])
+    return cast("RegimeResponse", _get_demo()["regime"])
 
 
 @app.get("/api/equity-history", response_model=list[EquityCurvePoint])
 async def get_equity_history() -> list[EquityCurvePoint]:
-    return _get_db_equity_history() or _demo["equity_history"]
+    return _get_db_equity_history() or _get_demo()["equity_history"]
 
 
 @app.get("/api/backtest-results", response_model=list[BacktestSummary])
 async def get_backtest_results() -> list[BacktestSummary]:
     # Return session history if available, otherwise demo data
-    return _backtest_history or cast("list[BacktestSummary]", _demo["backtest_results"])
+    return _backtest_history or cast("list[BacktestSummary]", _get_demo()["backtest_results"])
 
 
 @app.get("/api/trades", response_model=list[TradeResponse])
@@ -749,7 +819,21 @@ async def get_trades() -> list[TradeResponse]:
     # Worker is live — return empty list rather than fabricated demo trades
     if _get_db_portfolio() is not None:
         return []
-    return cast("list[TradeResponse]", _demo["trades"])
+    return cast("list[TradeResponse]", _get_demo()["trades"])
+
+
+class UniverseResponse(BaseModel):
+    symbols: list[str]
+    timeframe: str
+
+
+@app.get("/api/config/universe", response_model=UniverseResponse)
+async def get_universe() -> UniverseResponse:
+    """Return the current symbol universe and timeframe."""
+    return UniverseResponse(
+        symbols=_cfg.universe.symbols,
+        timeframe=_cfg.universe.timeframe,
+    )
 
 
 @app.get("/api/config", response_model=ConfigResponse)
@@ -835,7 +919,7 @@ class BacktestRunRequest(BaseModel):
     symbol: str = "BTC/USDT"
     strategy: str = "buy_and_hold"
     lookback_days: int = 365
-    initial_capital: float = 100_000.0
+    initial_capital: float = _cfg.portfolio.initial_equity
 
 
 _backtest_history: list[BacktestSummary] = []
@@ -1025,6 +1109,9 @@ async def place_order(body: OrderCreateRequest) -> TradeResponse:
                         avg_fill_price=order.avg_fill_price,
                         fees=order.fees,
                         signal_id=order.signal_id,
+                        signal_strength=None,
+                        signal_regime=None,
+                        realized_pnl=0.0,
                     )
                 )
                 conn.commit()
@@ -1032,7 +1119,10 @@ async def place_order(body: OrderCreateRequest) -> TradeResponse:
             logger.warning("order_persist_failed", error=str(e))
 
     fill_price = order.avg_fill_price or price or 0.0
-    fees = round(fill_price * order.quantity * 0.001, 2)
+    from packages.common.config import ExchangeConfig
+
+    taker_fee_rate = _cfg.exchanges.get("binance", ExchangeConfig()).fees_bps.taker / 10_000.0
+    fees = round(fill_price * order.quantity * taker_fee_rate, 2)
 
     return TradeResponse(
         id=order.id,

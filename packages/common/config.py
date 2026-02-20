@@ -67,6 +67,7 @@ class TechnicalFeaturesConfig(BaseModel):
     bb_std: float = 2.0
     vol_window: int = 24
     vwap_period: int = 24
+    bars_per_year: int = 2190  # 6 bars/day × 365 days (4h timeframe)
 
 
 class NormalizationConfig(BaseModel):
@@ -78,6 +79,7 @@ class NormalizationConfig(BaseModel):
 class FeaturesConfig(BaseModel):
     technical: TechnicalFeaturesConfig = Field(default_factory=TechnicalFeaturesConfig)
     normalization: NormalizationConfig = Field(default_factory=NormalizationConfig)
+    use_orderbook: bool = False  # set True only when live orderbook snapshots are available
 
 
 class WalkForwardConfig(BaseModel):
@@ -92,10 +94,15 @@ class LabelingConfig(BaseModel):
     profit_taking_pct: float = 0.03
     stop_loss_pct: float = 0.015
     max_holding_bars: int = 12
+    neutral_pct: float = 0.005  # return threshold for neutral label at time barrier
 
 
 class ModelConfig(BaseModel):
     type: str = "lightgbm_quantile"
+    n_estimators: int = 200
+    learning_rate: float = 0.05
+    max_depth: int = 6
+    num_leaves: int = 31
     quantiles: list[float] = Field(default_factory=lambda: [0.1, 0.25, 0.5, 0.75, 0.9])
     walk_forward: WalkForwardConfig = Field(default_factory=WalkForwardConfig)
     labeling: LabelingConfig = Field(default_factory=LabelingConfig)
@@ -119,8 +126,17 @@ class RegimeWeights(BaseModel):
 
 class SignalFusionConfig(BaseModel):
     method: str = "regime_gated_moe"
-    regime_weights: dict[str, RegimeWeights] = Field(default_factory=dict)
+    regime_weights: dict[str, RegimeWeights] = Field(
+        default_factory=lambda: {
+            "trending": RegimeWeights(technical=0.4, ml=0.5, sentiment=0.1),
+            "mean_reverting": RegimeWeights(technical=0.5, ml=0.3, sentiment=0.2),
+            "choppy": RegimeWeights(technical=0.3, ml=0.3, sentiment=0.4),
+        }
+    )
     choppy_scale: float = 0.3
+    direction_threshold: float = 0.05  # |strength| above this → directional signal
+    confidence_min_iqr: float = 0.2  # IQR at which model confidence → 1.0
+    confidence_max_iqr: float = 1.5  # IQR at which model confidence → 0.0
 
 
 class SignalsConfig(BaseModel):
@@ -166,6 +182,43 @@ class MonitoringConfig(BaseModel):
     drift_psi_threshold: float = 0.2
 
 
+class WorkerConfig(BaseModel):
+    signal_interval_hours: int = 4
+    candle_interval_hours: int = 1
+    sentiment_interval_minutes: int = 5
+    health_interval_seconds: int = 60
+    loop_sleep_seconds: int = 10
+    candle_backfill_hours: int = 2
+    sentiment_retention_hours: int = 24
+
+
+class PortfolioConfig(BaseModel):
+    initial_equity: float = 100_000.0
+    signal_lookback_bars: int = 1200  # 4h bars ≈ 200 days
+    min_train_bars: int = 500
+    min_valid_labels: int = 200
+    vol_lookback_bars: int = 90  # bars used for vol/Sharpe estimation
+
+
+class ApiConfig(BaseModel):
+    version: str = "0.1.0"
+    # CORS origins can be overridden via CORS_ORIGINS env var (comma-separated)
+    cors_origins: list[str] = Field(
+        default_factory=lambda: [
+            "http://localhost:3000",
+            "http://localhost:3001",
+            "http://localhost:4000",
+        ]
+    )
+
+
+class SentimentConfig(BaseModel):
+    decay_halflife_hours: float = 12.0
+    max_events_per_source: int = 10
+    staleness_hours: float = 24.0
+    dedup_window_hours: float = 6.0
+
+
 class AppConfig(BaseModel):
     universe: UniverseConfig = Field(default_factory=UniverseConfig)
     features: FeaturesConfig = Field(default_factory=FeaturesConfig)
@@ -178,6 +231,10 @@ class AppConfig(BaseModel):
     monitoring: MonitoringConfig = Field(default_factory=MonitoringConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     redis: RedisConfig = Field(default_factory=RedisConfig)
+    worker: WorkerConfig = Field(default_factory=WorkerConfig)
+    portfolio: PortfolioConfig = Field(default_factory=PortfolioConfig)
+    api: ApiConfig = Field(default_factory=ApiConfig)
+    sentiment: SentimentConfig = Field(default_factory=SentimentConfig)
 
 
 def save_config(config: AppConfig, config_path: str | Path | None = None) -> None:

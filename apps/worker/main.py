@@ -1,10 +1,10 @@
 """Worker process: scheduled tasks for the trading system.
 
-Scheduling:
-- Every 4h: signal pipeline (features → predict → regime → fuse → risk → execute)
-- Every 1h: candle ingestion (backfill recent candles from exchange)
-- Every 5m: sentiment cleanup, orderbook snapshots, order status polling
-- Every 1m: health check, drawdown monitoring, risk metrics persistence
+Scheduling (all intervals are config-driven via AppConfig.worker):
+- Every signal_interval_hours: signal pipeline (features → predict → regime → fuse → risk → execute)
+- Every candle_interval_hours: candle ingestion (backfill recent candles from exchange)
+- Every sentiment_interval_minutes: sentiment cleanup
+- Every health_interval_seconds: health check, drawdown monitoring, risk metrics persistence
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ class Worker:
         self._pipeline = SignalPipeline(config, self._engine)
 
     async def signal_pipeline_task(self) -> None:
-        """Main signal generation pipeline — runs every 4h."""
+        """Main signal generation pipeline — runs every signal_interval_hours."""
         logger.info("signal_pipeline_started", time=datetime.now(UTC).isoformat())
         try:
             await self._pipeline.run()
@@ -44,7 +44,7 @@ class Worker:
             logger.error("signal_pipeline_failed", error=str(e))
 
     async def candle_ingestion_task(self) -> None:
-        """Backfill recent candles from exchange — runs every 1h."""
+        """Backfill recent candles from exchange — runs every candle_interval_hours."""
         try:
             from packages.common.config import ExchangeConfig
             from packages.data_ingestion.backfill import backfill_candles
@@ -52,7 +52,8 @@ class Worker:
 
             exchange_cfg = self._config.exchanges.get("binance", ExchangeConfig())
             adapter = BinanceAdapter(config=exchange_cfg)
-            start = datetime.now(UTC) - timedelta(hours=2)
+            backfill_hours = self._config.worker.candle_backfill_hours
+            start = datetime.now(UTC) - timedelta(hours=backfill_hours)
 
             for symbol in self._config.universe.symbols:
                 inserted = await backfill_candles(
@@ -72,13 +73,14 @@ class Worker:
                 logger.warning("candle_ingestion_failed", error=err)
 
     async def sentiment_task(self) -> None:
-        """Sentiment cleanup — runs every 5 minutes.
+        """Sentiment cleanup — runs every sentiment_interval_minutes.
 
         Clears stale events from the in-memory scorer.
         Full ingestion (CryptoPanic/Reddit) requires API keys and is a separate concern.
         """
         try:
-            cutoff = datetime.now(UTC) - timedelta(hours=24)
+            retention_hours = self._config.worker.sentiment_retention_hours
+            cutoff = datetime.now(UTC) - timedelta(hours=retention_hours)
             removed = self._pipeline._sentiment_scorer.clear_old_events(cutoff)
             if removed > 0:
                 logger.debug("sentiment_stale_events_cleared", count=removed)
@@ -86,10 +88,10 @@ class Worker:
             logger.warning("sentiment_task_failed", error=str(e))
 
     async def health_check_task(self) -> None:
-        """Health and drawdown monitoring — runs every 1 minute.
+        """Health and drawdown monitoring — runs every health_interval_seconds.
 
         Persists current risk metrics so the API dashboard stays fresh
-        between 4h pipeline runs.
+        between pipeline runs.
         """
         try:
             self._pipeline._persist_risk_metrics()
@@ -97,13 +99,14 @@ class Worker:
             logger.warning("health_check_failed", error=str(e))
 
     async def run(self) -> None:
-        """Main worker loop with scheduled tasks."""
+        """Main worker loop with config-driven scheduled tasks."""
         logger.info("worker_started", mode=self._config.execution.mode)
 
-        signal_interval = 4 * 60 * 60  # 4 hours
-        candle_interval = 60 * 60  # 1 hour
-        sentiment_interval = 5 * 60  # 5 minutes
-        health_interval = 60  # 1 minute
+        wcfg = self._config.worker
+        signal_interval = wcfg.signal_interval_hours * 3600
+        candle_interval = wcfg.candle_interval_hours * 3600
+        sentiment_interval = wcfg.sentiment_interval_minutes * 60
+        health_interval = wcfg.health_interval_seconds
 
         last_signal = 0.0
         last_candle = 0.0
@@ -129,7 +132,7 @@ class Worker:
                 await self.signal_pipeline_task()
                 last_signal = now
 
-            await asyncio.sleep(10)
+            await asyncio.sleep(wcfg.loop_sleep_seconds)
 
 
 async def run_worker() -> None:
