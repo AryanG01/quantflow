@@ -285,7 +285,8 @@ class SignalPipeline:
         try:
             with self._engine.begin() as conn:
                 conn.execute(
-                    _orders_table.insert().values(
+                    pg_insert(_orders_table)
+                    .values(
                         id=o.id,
                         time=o.time,
                         symbol=o.symbol,
@@ -303,6 +304,7 @@ class SignalPipeline:
                         signal_regime=signal_regime,
                         realized_pnl=realized_pnl,
                     )
+                    .on_conflict_do_nothing()
                 )
             logger.debug("order_persisted", order_id=o.id)
         except Exception as e:
@@ -379,7 +381,7 @@ class SignalPipeline:
                             if snapshot.equity > 0
                             else 0.0
                         ),
-                        kill_switch_active=self._drawdown_monitor.should_trigger_kill_switch(),
+                        kill_switch_active=self._risk_checker.kill_switch_active,
                     )
                 )
             logger.debug("risk_metrics_persisted")
@@ -639,7 +641,9 @@ class SignalPipeline:
                     cash=new_cash,
                     positions_value=new_positions_value,
                     unrealized_pnl=0.0,
-                    realized_pnl=prev.realized_pnl + trade_realized_pnl - fees,
+                    realized_pnl=prev.realized_pnl
+                    + trade_realized_pnl
+                    - (fees if side == Side.BUY else 0.0),
                     drawdown_pct=dd,
                 )
                 self._portfolio_store.save_snapshot(new_snapshot)

@@ -7,6 +7,7 @@ back to demo data otherwise.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import math
 import os
@@ -1079,15 +1080,20 @@ async def place_order(body: OrderCreateRequest) -> TradeResponse:
             components={},
         )
         trade_value = body.quantity * latest_price
-        approved, reason = checker.check_pre_trade(
-            dummy_signal,
-            snap,
-            trade_value,
-            data_timestamp=datetime.now(UTC),
-        )
-        if not approved:
-            from fastapi import HTTPException
+        from fastapi import HTTPException
 
+        from packages.common.errors import KillSwitchError  # noqa: PLC0415
+
+        try:
+            approved, reason = checker.check_pre_trade(
+                dummy_signal,
+                snap,
+                trade_value,
+                data_timestamp=datetime.now(UTC),
+            )
+        except KillSwitchError as e:
+            raise HTTPException(status_code=400, detail=f"Kill switch active: {e}") from e
+        if not approved:
             raise HTTPException(status_code=400, detail=f"Risk check rejected: {reason}")
 
     order_mgr = OrderManager(paper_mode=True)
@@ -1229,7 +1235,7 @@ async def get_portfolio_analytics() -> PortfolioAnalyticsResponse:
 
 # ── Model management ──────────────────────────────────────────
 
-_retrain_lock = False
+_retrain_lock: asyncio.Lock = asyncio.Lock()
 _last_retrain_result: dict[str, Any] = {}
 
 
@@ -1240,133 +1246,135 @@ async def trigger_retrain() -> ModelRetainResponse:
     Runs walk-forward training on BTC/USDT (primary symbol) using DB candles.
     The resulting model is saved to the model registry on disk.
     """
-    global _retrain_lock, _last_retrain_result
+    global _last_retrain_result
 
-    if _retrain_lock:
+    if _retrain_lock.locked():
         return ModelRetainResponse(
             status="busy",
             message="Retrain already in progress, try again shortly.",
         )
 
-    _retrain_lock = True
-    try:
-        import pandas as pd
+    async with _retrain_lock:
+        try:
+            import pandas as pd
 
-        from packages.features.normalizer import RollingZScoreNormalizer
-        from packages.features.technical import TechnicalFeatures
-        from packages.models.labeling import triple_barrier_labels
-        from packages.models.lightgbm_model import LightGBMQuantileModel
-        from packages.models.model_registry import ModelRegistry
-        from packages.models.training import run_walk_forward
+            from packages.features.normalizer import RollingZScoreNormalizer
+            from packages.features.technical import TechnicalFeatures
+            from packages.models.labeling import triple_barrier_labels
+            from packages.models.lightgbm_model import LightGBMQuantileModel
+            from packages.models.model_registry import ModelRegistry
+            from packages.models.training import run_walk_forward
 
-        primary_symbol = _cfg.universe.symbols[0] if _cfg.universe.symbols else "BTC/USDT"
-        query = sa.text(
-            """
-            SELECT time, open, high, low, close, volume
-            FROM candles
-            WHERE symbol = :symbol AND timeframe = :tf
-            ORDER BY time ASC
-            LIMIT 2000
-            """
-        )
-        engine = _get_db()
-        if engine is None:
-            return ModelRetainResponse(
-                status="error",
-                message="Database unavailable — cannot retrain without candle data.",
+            primary_symbol = _cfg.universe.symbols[0] if _cfg.universe.symbols else "BTC/USDT"
+            query = sa.text(
+                """
+                SELECT time, open, high, low, close, volume
+                FROM candles
+                WHERE symbol = :symbol AND timeframe = :tf
+                ORDER BY time ASC
+                LIMIT 2000
+                """
+            )
+            engine = _get_db()
+            if engine is None:
+                return ModelRetainResponse(
+                    status="error",
+                    message="Database unavailable — cannot retrain without candle data.",
+                )
+
+            with engine.connect() as conn:
+                rows = conn.execute(
+                    query, {"symbol": primary_symbol, "tf": _cfg.universe.timeframe}
+                ).fetchall()
+
+            if len(rows) < 200:
+                return ModelRetainResponse(
+                    status="error",
+                    message=f"Insufficient candle data: {len(rows)} bars (need 200+).",
+                )
+
+            df = pd.DataFrame(rows, columns=["time", "open", "high", "low", "close", "volume"])
+
+            tech_cfg = _cfg.features.technical
+            feature_computer = TechnicalFeatures(
+                rsi_period=tech_cfg.rsi_period,
+                atr_period=tech_cfg.atr_period,
+                bb_period=tech_cfg.bb_period,
+                bb_std=tech_cfg.bb_std,
+                vol_window=tech_cfg.vol_window,
+                vwap_period=tech_cfg.vwap_period,
+                bars_per_year=tech_cfg.bars_per_year,
+            )
+            norm_cfg = _cfg.features.normalization
+            normalizer = RollingZScoreNormalizer(window=norm_cfg.window, shift=norm_cfg.shift)
+
+            features = feature_computer.compute(df)
+            normalized = normalizer.normalize(features)
+            valid_mask = normalized.notna().all(axis=1)
+            clean_features = normalized[valid_mask]
+            clean_candles = df[valid_mask].reset_index(drop=True)
+
+            labels = triple_barrier_labels(clean_candles["close"], config=_cfg.model.labeling)
+            valid_labels = labels >= 0
+
+            if valid_labels.sum() < 50:
+                return ModelRetainResponse(
+                    status="error",
+                    message=f"Too few valid labels: {valid_labels.sum()} (need 50+).",
+                )
+
+            model = LightGBMQuantileModel(
+                quantiles=_cfg.model.quantiles,
+                n_estimators=_cfg.model.n_estimators,
+                learning_rate=_cfg.model.learning_rate,
+                max_depth=_cfg.model.max_depth,
+                num_leaves=_cfg.model.num_leaves,
             )
 
-        with engine.connect() as conn:
-            rows = conn.execute(
-                query, {"symbol": primary_symbol, "tf": _cfg.universe.timeframe}
-            ).fetchall()
-
-        if len(rows) < 200:
-            return ModelRetainResponse(
-                status="error",
-                message=f"Insufficient candle data: {len(rows)} bars (need 200+).",
+            # Walk-forward to get validation accuracy
+            wf_results = run_walk_forward(
+                model,
+                clean_features[valid_labels],
+                labels[valid_labels],
+                config=_cfg.model.walk_forward,
+            )
+            val_acc = (
+                float(sum(r.test_accuracy for r in wf_results) / len(wf_results))
+                if wf_results
+                else None
             )
 
-        df = pd.DataFrame(rows, columns=["time", "open", "high", "low", "close", "volume"])
-
-        tech_cfg = _cfg.features.technical
-        feature_computer = TechnicalFeatures(
-            rsi_period=tech_cfg.rsi_period,
-            atr_period=tech_cfg.atr_period,
-            bb_period=tech_cfg.bb_period,
-            bb_std=tech_cfg.bb_std,
-            vol_window=tech_cfg.vol_window,
-            vwap_period=tech_cfg.vwap_period,
-            bars_per_year=tech_cfg.bars_per_year,
-        )
-        norm_cfg = _cfg.features.normalization
-        normalizer = RollingZScoreNormalizer(window=norm_cfg.window, shift=norm_cfg.shift)
-
-        features = feature_computer.compute(df)
-        normalized = normalizer.normalize(features)
-        valid_mask = normalized.notna().all(axis=1)
-        clean_features = normalized[valid_mask]
-        clean_candles = df[valid_mask].reset_index(drop=True)
-
-        labels = triple_barrier_labels(clean_candles["close"], config=_cfg.model.labeling)
-        valid_labels = labels >= 0
-
-        if valid_labels.sum() < 50:
-            return ModelRetainResponse(
-                status="error",
-                message=f"Too few valid labels: {valid_labels.sum()} (need 50+).",
+            # Full retrain on all data and save
+            model.train(clean_features[valid_labels], labels[valid_labels])
+            registry = ModelRegistry(base_dir="models")
+            registry.save(
+                model=model,
+                model_id="lightgbm_latest",
+                model_type="lightgbm_quantile",
+                train_metrics={
+                    "n_samples": int(valid_labels.sum()),
+                    "val_accuracy": val_acc or 0.0,
+                },
+                feature_names=list(clean_features.columns),
             )
 
-        model = LightGBMQuantileModel(
-            quantiles=_cfg.model.quantiles,
-            n_estimators=_cfg.model.n_estimators,
-            learning_rate=_cfg.model.learning_rate,
-            max_depth=_cfg.model.max_depth,
-            num_leaves=_cfg.model.num_leaves,
-        )
-
-        # Walk-forward to get validation accuracy
-        wf_results = run_walk_forward(
-            model,
-            clean_features[valid_labels],
-            labels[valid_labels],
-            config=_cfg.model.walk_forward,
-        )
-        val_acc = (
-            float(sum(r.test_accuracy for r in wf_results) / len(wf_results))
-            if wf_results
-            else None
-        )
-
-        # Full retrain on all data and save
-        model.train(clean_features[valid_labels], labels[valid_labels])
-        registry = ModelRegistry(base_dir="models")
-        registry.save(
-            model=model,
-            model_id="lightgbm_latest",
-            model_type="lightgbm_quantile",
-            train_metrics={"n_samples": int(valid_labels.sum()), "val_accuracy": val_acc or 0.0},
-            feature_names=list(clean_features.columns),
-        )
-
-        now_str = datetime.now(UTC).isoformat()
-        _last_retrain_result = {
-            "model_id": "lightgbm_latest",
-            "train_accuracy": val_acc,
-            "last_trained": now_str,
-        }
-        return ModelRetainResponse(
-            status="ok",
-            message=f"Retrained on {int(valid_labels.sum())} samples.",
-            model_id="lightgbm_latest",
-            train_accuracy=round(val_acc, 4) if val_acc is not None else None,
-            last_trained=now_str,
-        )
-    except Exception as e:
-        logger.error("retrain_failed", error=str(e))
-        return ModelRetainResponse(status="error", message=str(e))
-    finally:
-        _retrain_lock = False
+            now_str = datetime.now(UTC).isoformat()
+            _last_retrain_result = {
+                "status": "ok",
+                "model_id": "lightgbm_latest",
+                "train_accuracy": val_acc,
+                "last_trained": now_str,
+            }
+            return ModelRetainResponse(
+                status="ok",
+                message=f"Retrained on {int(valid_labels.sum())} samples.",
+                model_id="lightgbm_latest",
+                train_accuracy=round(val_acc, 4) if val_acc is not None else None,
+                last_trained=now_str,
+            )
+        except Exception as e:
+            logger.error("retrain_failed", error=str(e))
+            return ModelRetainResponse(status="error", message=str(e))
 
 
 class ExchangeTestRequest(BaseModel):
