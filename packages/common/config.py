@@ -180,6 +180,8 @@ class MonitoringConfig(BaseModel):
     prometheus_port: int = 9090
     alert_webhook_url: str = ""
     drift_psi_threshold: float = 0.2
+    telegram_bot_token: str = ""  # set via env var TELEGRAM_BOT_TOKEN
+    telegram_chat_id: str = ""  # set via env var TELEGRAM_CHAT_ID
 
 
 class WorkerConfig(BaseModel):

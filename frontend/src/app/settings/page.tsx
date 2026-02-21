@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api, SystemConfig } from "@/lib/api";
+import { api, ModelStatus, SystemConfig } from "@/lib/api";
 import { usePolling } from "@/hooks/usePolling";
 
 type Toast = { message: string; type: "success" | "error" } | null;
@@ -89,6 +89,16 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<Toast>(null);
 
+  // Exchange keys (session-scoped, not persisted)
+  const [apiKey, setApiKey] = useState("");
+  const [apiSecret, setApiSecret] = useState("");
+  const [testingKeys, setTestingKeys] = useState(false);
+  const [keyStatus, setKeyStatus] = useState<string | null>(null);
+
+  // Model retrain
+  const [modelStatus, setModelStatus] = useState<ModelStatus | null>(null);
+  const [retraining, setRetraining] = useState(false);
+
   // Sync from server config
   useEffect(() => {
     if (!config) return;
@@ -152,6 +162,47 @@ export default function SettingsPage() {
     setOrderTimeout((e.order_timeout_seconds as number) || 120);
     setMaxRetries((e.max_retries as number) || 3);
     showToast("Reset to last saved values", "success");
+  };
+
+  // Load model status on mount
+  useEffect(() => {
+    api.modelStatus().then((s) => {
+      if (s) setModelStatus(s);
+    });
+  }, []);
+
+  const handleTestKeys = async () => {
+    if (!apiKey || !apiSecret) {
+      showToast("Enter both API key and secret", "error");
+      return;
+    }
+    setTestingKeys(true);
+    setKeyStatus(null);
+    const result = await api.testExchangeKeys(apiKey, apiSecret);
+    setTestingKeys(false);
+    if (result?.status === "ok") {
+      setKeyStatus("valid");
+      showToast(result.message, "success");
+    } else {
+      setKeyStatus("invalid");
+      showToast(result?.message || "Connection test failed", "error");
+    }
+  };
+
+  const handleRetrain = async () => {
+    setRetraining(true);
+    const result = await api.modelRetrain();
+    setRetraining(false);
+    if (result) {
+      setModelStatus(result);
+      if (result.status === "ok") {
+        showToast(result.message, "success");
+      } else {
+        showToast(result.message, "error");
+      }
+    } else {
+      showToast("Retrain request failed", "error");
+    }
   };
 
   const toggleSymbol = (sym: string) => {
@@ -359,6 +410,107 @@ export default function SettingsPage() {
                   />
                 </div>
               </div>
+            </div>
+          </div>
+
+          {/* Exchange API Keys */}
+          <div className="card-glow bg-[var(--color-bg-card)] rounded-lg p-5">
+            <div className="mb-4">
+              <h3 className="text-sm font-semibold">Exchange Connection</h3>
+              <p className="text-xs text-[var(--color-text-muted)]">
+                API keys are used for connection testing only (not stored on disk)
+              </p>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs text-[var(--color-text-muted)] block mb-1.5">API Key</label>
+                <input
+                  type="password"
+                  value={apiKey}
+                  onChange={(e) => { setApiKey(e.target.value); setKeyStatus(null); }}
+                  placeholder="Enter Binance API key"
+                  className="input font-mono text-xs"
+                  autoComplete="off"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-[var(--color-text-muted)] block mb-1.5">API Secret</label>
+                <input
+                  type="password"
+                  value={apiSecret}
+                  onChange={(e) => { setApiSecret(e.target.value); setKeyStatus(null); }}
+                  placeholder="Enter Binance API secret"
+                  className="input font-mono text-xs"
+                  autoComplete="off"
+                />
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={handleTestKeys}
+                  disabled={testingKeys || !apiKey || !apiSecret}
+                  className="btn btn-secondary"
+                >
+                  {testingKeys ? "Testing..." : "Test Connection"}
+                </button>
+                {keyStatus === "valid" && (
+                  <span className="text-xs text-[var(--color-accent-green)]">Connected</span>
+                )}
+                {keyStatus === "invalid" && (
+                  <span className="text-xs text-[var(--color-accent-red)]">Invalid</span>
+                )}
+              </div>
+              <p className="text-[10px] text-[var(--color-text-muted)]">
+                For live trading, set BINANCE_API_KEY and BINANCE_API_SECRET as environment variables on the worker process.
+              </p>
+            </div>
+          </div>
+
+          {/* Model Management */}
+          <div className="card-glow bg-[var(--color-bg-card)] rounded-lg p-5">
+            <div className="mb-4">
+              <h3 className="text-sm font-semibold">Model Management</h3>
+              <p className="text-xs text-[var(--color-text-muted)]">
+                LightGBM quantile model — retrain on latest candle data
+              </p>
+            </div>
+            <div className="space-y-3">
+              {modelStatus && (
+                <div className="text-xs space-y-1">
+                  <div className="flex gap-2">
+                    <span className="text-[var(--color-text-muted)]">Status:</span>
+                    <span className={
+                      modelStatus.status === "ok"
+                        ? "text-[var(--color-accent-green)]"
+                        : modelStatus.status === "no_model"
+                        ? "text-[var(--color-text-muted)]"
+                        : "text-[var(--color-accent-red)]"
+                    }>
+                      {modelStatus.status === "ok" ? "Trained" : modelStatus.status === "no_model" ? "No model" : modelStatus.status}
+                    </span>
+                  </div>
+                  {modelStatus.last_trained && (
+                    <div className="flex gap-2">
+                      <span className="text-[var(--color-text-muted)]">Last trained:</span>
+                      <span className="font-mono tabular-nums">{new Date(modelStatus.last_trained).toLocaleString()}</span>
+                    </div>
+                  )}
+                  {modelStatus.train_accuracy != null && (
+                    <div className="flex gap-2">
+                      <span className="text-[var(--color-text-muted)]">Validation accuracy:</span>
+                      <span className="font-mono tabular-nums text-[var(--color-accent-cyan)]">
+                        {(modelStatus.train_accuracy * 100).toFixed(1)}%
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
+              <button
+                onClick={handleRetrain}
+                disabled={retraining}
+                className="btn btn-primary"
+              >
+                {retraining ? "Retraining..." : "Retrain Model"}
+              </button>
             </div>
           </div>
 

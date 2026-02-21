@@ -17,6 +17,7 @@ import sqlalchemy as sa
 from apps.worker.tasks.signal_pipeline import SignalPipeline
 from packages.common.config import AppConfig, load_config
 from packages.common.logging import get_logger, setup_logging
+from packages.monitoring.alerting import AlertManager, AlertRule, AlertSeverity
 
 logger = get_logger(__name__)
 
@@ -33,6 +34,41 @@ class Worker:
         self._config = config
         self._engine = _create_engine(config)
         self._pipeline = SignalPipeline(config, self._engine)
+
+        mon = config.monitoring
+        self._alert_manager = AlertManager(
+            webhook_url=mon.alert_webhook_url,
+            telegram_bot_token=mon.telegram_bot_token,
+            telegram_chat_id=mon.telegram_chat_id,
+        )
+        self._register_alert_rules()
+
+    def _register_alert_rules(self) -> None:
+        """Register default alert rules for risk monitoring."""
+        pipeline = self._pipeline
+
+        def kill_switch_active() -> bool:
+            return pipeline._drawdown_monitor.should_trigger_kill_switch()
+
+        def drawdown_over_10pct() -> bool:
+            return pipeline._drawdown_monitor.current_drawdown > 0.10
+
+        self._alert_manager.add_rule(
+            AlertRule(
+                name="kill_switch",
+                condition_fn=kill_switch_active,
+                message_template="🚨 Kill switch TRIGGERED — max drawdown exceeded. All trading halted.",
+                severity=AlertSeverity.CRITICAL,
+            )
+        )
+        self._alert_manager.add_rule(
+            AlertRule(
+                name="drawdown_10pct",
+                condition_fn=drawdown_over_10pct,
+                message_template="⚠️ Portfolio drawdown exceeded 10%. Current risk is elevated.",
+                severity=AlertSeverity.HIGH,
+            )
+        )
 
     async def signal_pipeline_task(self) -> None:
         """Main signal generation pipeline — runs every signal_interval_hours."""
@@ -91,10 +127,13 @@ class Worker:
         """Health and drawdown monitoring — runs every health_interval_seconds.
 
         Persists current risk metrics so the API dashboard stays fresh
-        between pipeline runs.
+        between pipeline runs. Also evaluates alert rules (Telegram for HIGH/CRITICAL).
         """
         try:
             self._pipeline._persist_risk_metrics()
+            fired = self._alert_manager.evaluate_all()
+            if fired:
+                logger.info("alerts_fired", count=len(fired))
         except Exception as e:
             logger.warning("health_check_failed", error=str(e))
 

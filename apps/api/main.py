@@ -248,6 +248,23 @@ class CandleResponse(BaseModel):
     volume: float
 
 
+class PortfolioAnalyticsResponse(BaseModel):
+    daily_return: float | None  # most recent daily return
+    weekly_return: float | None  # 7-day cumulative return
+    rolling_sharpe_30d: float | None  # 30-day rolling Sharpe
+    max_drawdown: float  # all-time max drawdown pct
+    max_drawdown_duration_bars: int  # longest drawdown streak in bars
+    equity_series: list[EquityCurvePoint]  # full equity history for chart
+
+
+class ModelRetainResponse(BaseModel):
+    status: str
+    message: str
+    model_id: str | None = None
+    train_accuracy: float | None = None
+    last_trained: str | None = None
+
+
 class ConfigResponse(BaseModel):
     universe: dict[str, Any]
     risk: dict[str, Any]
@@ -1135,4 +1152,293 @@ async def place_order(body: OrderCreateRequest) -> TradeResponse:
         pnl=0.0,
         signal_strength=0.0,
         regime="unknown",
+    )
+
+
+# ── Portfolio analytics ───────────────────────────────────────
+
+
+@app.get("/api/portfolio/analytics", response_model=PortfolioAnalyticsResponse)
+async def get_portfolio_analytics() -> PortfolioAnalyticsResponse:
+    """Compute performance analytics from portfolio snapshot history.
+
+    All metrics are derived from the real portfolio_snapshots table.
+    Falls back to demo equity curve when DB is unavailable.
+    """
+    import math
+
+    import numpy as np
+
+    from packages.backtest.metrics import bars_per_year, compute_max_drawdown
+
+    # Fetch full equity history
+    query = sa.select(_portfolio_table.c.time, _portfolio_table.c.equity).order_by(
+        _portfolio_table.c.time
+    )
+    rows = _db_query(query)
+
+    if not rows or len(rows) < 2:
+        # Fall back to demo data
+        demo_eq = _get_demo()["equity_history"]
+        eq_series = demo_eq
+        equities = [p.equity for p in demo_eq]
+    else:
+        equities = [r.equity for r in rows]
+        eq_series = [EquityCurvePoint(timestamp=r.time.isoformat(), equity=r.equity) for r in rows]
+
+    eq_arr = np.array(equities, dtype=np.float64)
+    log_ret = np.diff(np.log(np.maximum(eq_arr, 1e-10)))
+
+    bars_yr = bars_per_year(_cfg.universe.timeframe)
+    ann_factor = float(np.sqrt(bars_yr))
+
+    # Daily return: sum of last 6 bars (one 4h-bar day)
+    bars_per_day = max(1, bars_yr // 365)
+    if len(log_ret) >= bars_per_day:
+        daily_return: float | None = float(np.sum(log_ret[-bars_per_day:]))
+    else:
+        daily_return = None
+
+    # Weekly return: last 42 bars (7 days × 6 bars/day for 4h)
+    bars_per_week = bars_per_day * 7
+    if len(log_ret) >= bars_per_week:
+        weekly_return: float | None = float(np.sum(log_ret[-bars_per_week:]))
+    else:
+        weekly_return = None
+
+    # 30-day rolling Sharpe (last 180 bars for 4h)
+    bars_30d = bars_per_day * 30
+    rolling_sharpe: float | None = None
+    if len(log_ret) >= 10:
+        window_ret = log_ret[-bars_30d:] if len(log_ret) >= bars_30d else log_ret
+        std = float(np.std(window_ret))
+        if std > 0 and not math.isnan(std):
+            rolling_sharpe = float(np.mean(window_ret)) / std * ann_factor
+
+    max_dd, max_dd_dur = compute_max_drawdown(eq_arr)
+
+    return PortfolioAnalyticsResponse(
+        daily_return=daily_return,
+        weekly_return=weekly_return,
+        rolling_sharpe_30d=rolling_sharpe,
+        max_drawdown=round(max_dd, 4),
+        max_drawdown_duration_bars=max_dd_dur,
+        equity_series=eq_series,
+    )
+
+
+# ── Model management ──────────────────────────────────────────
+
+_retrain_lock = False
+_last_retrain_result: dict[str, Any] = {}
+
+
+@app.post("/api/model/retrain", response_model=ModelRetainResponse)
+async def trigger_retrain() -> ModelRetainResponse:
+    """Trigger a synchronous model retrain using the latest candle data.
+
+    Runs walk-forward training on BTC/USDT (primary symbol) using DB candles.
+    The resulting model is saved to the model registry on disk.
+    """
+    global _retrain_lock, _last_retrain_result
+
+    if _retrain_lock:
+        return ModelRetainResponse(
+            status="busy",
+            message="Retrain already in progress, try again shortly.",
+        )
+
+    _retrain_lock = True
+    try:
+        import pandas as pd
+
+        from packages.features.normalizer import RollingZScoreNormalizer
+        from packages.features.technical import TechnicalFeatures
+        from packages.models.labeling import triple_barrier_labels
+        from packages.models.lightgbm_model import LightGBMQuantileModel
+        from packages.models.model_registry import ModelRegistry
+        from packages.models.training import run_walk_forward
+
+        primary_symbol = _cfg.universe.symbols[0] if _cfg.universe.symbols else "BTC/USDT"
+        query = sa.text(
+            """
+            SELECT time, open, high, low, close, volume
+            FROM candles
+            WHERE symbol = :symbol AND timeframe = :tf
+            ORDER BY time ASC
+            LIMIT 2000
+            """
+        )
+        engine = _get_db()
+        if engine is None:
+            return ModelRetainResponse(
+                status="error",
+                message="Database unavailable — cannot retrain without candle data.",
+            )
+
+        with engine.connect() as conn:
+            rows = conn.execute(
+                query, {"symbol": primary_symbol, "tf": _cfg.universe.timeframe}
+            ).fetchall()
+
+        if len(rows) < 200:
+            return ModelRetainResponse(
+                status="error",
+                message=f"Insufficient candle data: {len(rows)} bars (need 200+).",
+            )
+
+        df = pd.DataFrame(rows, columns=["time", "open", "high", "low", "close", "volume"])
+
+        tech_cfg = _cfg.features.technical
+        feature_computer = TechnicalFeatures(
+            rsi_period=tech_cfg.rsi_period,
+            atr_period=tech_cfg.atr_period,
+            bb_period=tech_cfg.bb_period,
+            bb_std=tech_cfg.bb_std,
+            vol_window=tech_cfg.vol_window,
+            vwap_period=tech_cfg.vwap_period,
+            bars_per_year=tech_cfg.bars_per_year,
+        )
+        norm_cfg = _cfg.features.normalization
+        normalizer = RollingZScoreNormalizer(window=norm_cfg.window, shift=norm_cfg.shift)
+
+        features = feature_computer.compute(df)
+        normalized = normalizer.normalize(features)
+        valid_mask = normalized.notna().all(axis=1)
+        clean_features = normalized[valid_mask]
+        clean_candles = df[valid_mask].reset_index(drop=True)
+
+        labels = triple_barrier_labels(clean_candles["close"], config=_cfg.model.labeling)
+        valid_labels = labels >= 0
+
+        if valid_labels.sum() < 50:
+            return ModelRetainResponse(
+                status="error",
+                message=f"Too few valid labels: {valid_labels.sum()} (need 50+).",
+            )
+
+        model = LightGBMQuantileModel(
+            quantiles=_cfg.model.quantiles,
+            n_estimators=_cfg.model.n_estimators,
+            learning_rate=_cfg.model.learning_rate,
+            max_depth=_cfg.model.max_depth,
+            num_leaves=_cfg.model.num_leaves,
+        )
+
+        # Walk-forward to get validation accuracy
+        wf_results = run_walk_forward(
+            model,
+            clean_features[valid_labels],
+            labels[valid_labels],
+            config=_cfg.model.walk_forward,
+        )
+        val_acc = (
+            float(sum(r.test_accuracy for r in wf_results) / len(wf_results))
+            if wf_results
+            else None
+        )
+
+        # Full retrain on all data and save
+        model.train(clean_features[valid_labels], labels[valid_labels])
+        registry = ModelRegistry(base_dir="models")
+        registry.save(
+            model=model,
+            model_id="lightgbm_latest",
+            model_type="lightgbm_quantile",
+            train_metrics={"n_samples": int(valid_labels.sum()), "val_accuracy": val_acc or 0.0},
+            feature_names=list(clean_features.columns),
+        )
+
+        now_str = datetime.now(UTC).isoformat()
+        _last_retrain_result = {
+            "model_id": "lightgbm_latest",
+            "train_accuracy": val_acc,
+            "last_trained": now_str,
+        }
+        return ModelRetainResponse(
+            status="ok",
+            message=f"Retrained on {int(valid_labels.sum())} samples.",
+            model_id="lightgbm_latest",
+            train_accuracy=round(val_acc, 4) if val_acc is not None else None,
+            last_trained=now_str,
+        )
+    except Exception as e:
+        logger.error("retrain_failed", error=str(e))
+        return ModelRetainResponse(status="error", message=str(e))
+    finally:
+        _retrain_lock = False
+
+
+class ExchangeTestRequest(BaseModel):
+    api_key: str
+    api_secret: str
+
+
+class ExchangeTestResponse(BaseModel):
+    status: str
+    message: str
+
+
+@app.post("/api/config/exchange/test", response_model=ExchangeTestResponse)
+async def test_exchange_keys(body: ExchangeTestRequest) -> ExchangeTestResponse:
+    """Validate Binance API keys by making a signed account info request.
+
+    Keys are NOT persisted — they are used only for this test call.
+    To use keys in production, set BINANCE_API_KEY and BINANCE_API_SECRET
+    as environment variables for the worker process.
+    """
+    import hashlib
+    import hmac
+
+    try:
+        timestamp = int(time.time() * 1000)
+        query_string = f"timestamp={timestamp}"
+        signature = hmac.new(
+            body.api_secret.encode(), query_string.encode(), hashlib.sha256
+        ).hexdigest()
+        url = f"https://api.binance.com/api/v3/account?{query_string}&signature={signature}"
+        req = urllib.request.Request(url, method="GET")  # noqa: S310
+        req.add_header("X-MBX-APIKEY", body.api_key)
+        with urllib.request.urlopen(req, timeout=5) as resp:  # noqa: S310
+            if resp.status == 200:
+                return ExchangeTestResponse(
+                    status="ok", message="API keys are valid. Account access confirmed."
+                )
+        return ExchangeTestResponse(status="error", message="Unexpected response from Binance.")
+    except Exception as e:
+        err = str(e)
+        if "401" in err or "403" in err:
+            return ExchangeTestResponse(status="error", message="Invalid API key or secret.")
+        if "418" in err:
+            return ExchangeTestResponse(
+                status="error", message="IP temporarily banned by Binance. Try again later."
+            )
+        return ExchangeTestResponse(status="error", message=f"Connection failed: {err[:100]}")
+
+
+@app.get("/api/model/status", response_model=ModelRetainResponse)
+async def get_model_status() -> ModelRetainResponse:
+    """Return status of the last retrain operation."""
+    if not _last_retrain_result:
+        # Try to read metadata from registry
+        try:
+            from packages.models.model_registry import ModelRegistry
+
+            registry = ModelRegistry(base_dir="models")
+            _model, meta = registry.load("lightgbm_latest")
+            return ModelRetainResponse(
+                status="ok",
+                message="Model loaded from registry.",
+                model_id="lightgbm_latest",
+                train_accuracy=meta.train_metrics.get("val_accuracy"),
+                last_trained=meta.created_at,
+            )
+        except (FileNotFoundError, OSError):
+            return ModelRetainResponse(status="no_model", message="No trained model found.")
+    return ModelRetainResponse(
+        status=_last_retrain_result.get("status", "ok"),
+        message="Last retrain result.",
+        model_id=_last_retrain_result.get("model_id"),
+        train_accuracy=_last_retrain_result.get("train_accuracy"),
+        last_trained=_last_retrain_result.get("last_trained"),
     )

@@ -110,6 +110,28 @@ export interface OrderRequest {
   price?: number;
 }
 
+export interface PortfolioAnalytics {
+  daily_return: number | null;
+  weekly_return: number | null;
+  rolling_sharpe_30d: number | null;
+  max_drawdown: number;
+  max_drawdown_duration_bars: number;
+  equity_series: EquityCurvePoint[];
+}
+
+export interface ModelStatus {
+  status: string;
+  message: string;
+  model_id: string | null;
+  train_accuracy: number | null;
+  last_trained: string | null;
+}
+
+export interface ExchangeTestResult {
+  status: string;
+  message: string;
+}
+
 async function fetchJson<T>(path: string): Promise<T | null> {
   try {
     const res = await fetch(`${API_BASE}${path}`, { cache: "no-store" });
@@ -169,4 +191,13 @@ export const api = {
     postJson<BacktestResult>("/backtest/run", body),
   placeOrder: (body: OrderRequest) =>
     postJson<Trade>("/orders", body),
+  portfolioAnalytics: () =>
+    fetchJson<PortfolioAnalytics>("/portfolio/analytics"),
+  modelStatus: () => fetchJson<ModelStatus>("/model/status"),
+  modelRetrain: () => postJson<ModelStatus>("/model/retrain", {}),
+  testExchangeKeys: (apiKey: string, apiSecret: string) =>
+    postJson<ExchangeTestResult>("/config/exchange/test", {
+      api_key: apiKey,
+      api_secret: apiSecret,
+    }),
 };

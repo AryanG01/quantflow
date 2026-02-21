@@ -34,6 +34,8 @@ export default function Dashboard() {
   const { data: risk } = usePolling(useCallback(() => api.risk(), []), 5000);
   const { data: regime } = usePolling(useCallback(() => api.regime(), []), 5000);
   const { data: equityHistory } = usePolling(useCallback(() => api.equityHistory(), []), 15000);
+  const { data: analytics } = usePolling(useCallback(() => api.portfolioAnalytics(), []), 30000);
+  const { data: config } = usePolling(useCallback(() => api.config(), []), 60000);
 
   const loading = !portfolio;
 
@@ -100,6 +102,49 @@ export default function Dashboard() {
           <EquityChart data={equityHistory || []} />
           <PositionsTable positions={positions || []} />
 
+          {/* Performance Card */}
+          {analytics && (
+            <div className="card-glow bg-[var(--color-bg-card)] rounded-lg p-4">
+              <h3 className="text-sm font-semibold text-[var(--color-text-secondary)] mb-3">
+                Performance
+              </h3>
+              <div className="grid grid-cols-4 gap-4 text-xs">
+                <div>
+                  <span className="text-[var(--color-text-muted)]">Daily</span>
+                  <p className={`font-semibold tabular-nums font-mono ${
+                    analytics.daily_return != null && analytics.daily_return >= 0
+                      ? "text-[var(--color-accent-green)]"
+                      : "text-[var(--color-accent-red)]"
+                  }`}>
+                    {analytics.daily_return != null ? formatPct(analytics.daily_return) : "—"}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-[var(--color-text-muted)]">Weekly</span>
+                  <p className={`font-semibold tabular-nums font-mono ${
+                    analytics.weekly_return != null && analytics.weekly_return >= 0
+                      ? "text-[var(--color-accent-green)]"
+                      : "text-[var(--color-accent-red)]"
+                  }`}>
+                    {analytics.weekly_return != null ? formatPct(analytics.weekly_return) : "—"}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-[var(--color-text-muted)]">Sharpe (30d)</span>
+                  <p className="font-semibold tabular-nums font-mono text-[var(--color-accent-cyan)]">
+                    {analytics.rolling_sharpe_30d != null ? analytics.rolling_sharpe_30d.toFixed(2) : "—"}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-[var(--color-text-muted)]">Max DD</span>
+                  <p className="font-semibold tabular-nums font-mono text-[var(--color-accent-red)]">
+                    {formatPct(-analytics.max_drawdown)}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* System Info */}
           <div className="card-glow bg-[var(--color-bg-card)] rounded-lg p-4">
             <h3 className="text-sm font-semibold text-[var(--color-text-secondary)] mb-3">
@@ -108,11 +153,19 @@ export default function Dashboard() {
             <div className="grid grid-cols-3 gap-4 text-xs">
               <div>
                 <span className="text-[var(--color-text-muted)]">Mode</span>
-                <p className="font-semibold text-amber-400">PAPER</p>
+                <p className={`font-semibold ${
+                  (config?.execution as Record<string, unknown>)?.mode === "live"
+                    ? "text-[var(--color-accent-red)]"
+                    : "text-amber-400"
+                }`}>
+                  {((config?.execution as Record<string, unknown>)?.mode as string || "paper").toUpperCase()}
+                </p>
               </div>
               <div>
                 <span className="text-[var(--color-text-muted)]">Timeframe</span>
-                <p className="font-semibold">4H</p>
+                <p className="font-semibold">
+                  {((config?.universe as Record<string, unknown>)?.timeframe as string || "4h").toUpperCase()}
+                </p>
               </div>
               <div>
                 <span className="text-[var(--color-text-muted)]">Uptime</span>
@@ -152,7 +205,7 @@ export default function Dashboard() {
       {/* Footer */}
       <footer className="mt-8 pt-4 border-t border-[var(--color-border)] text-center">
         <p className="text-xs text-[var(--color-text-muted)] tracking-wider">
-          QUANTFLOW · CRYPTO SPOT · MULTI-EXCHANGE · 4H SWING
+          QUANTFLOW · CRYPTO SPOT · MULTI-EXCHANGE · {((config?.universe as Record<string, unknown>)?.timeframe as string || "4h").toUpperCase()} SWING
         </p>
       </footer>
     </>
