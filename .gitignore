@@ -68,3 +68,4 @@ migrations/*.txt
 frontend/node_modules/
 frontend/.next/
 
+.worktrees/
