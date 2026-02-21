@@ -209,10 +209,9 @@ Comprehensive scan across all layers; fixes committed in 5 batches:
 - [x] `Dockerfile` — `ENV PYTHONPATH=/app` added so `packages/` and `apps/` resolve in Railway containers
 - [x] `frontend/next.config.ts` — Uses `NEXT_PUBLIC_API_URL` env var (fallback: `http://localhost:8000`)
 - [x] Equity curve fix — `signal_pipeline.run()` writes a portfolio snapshot every cycle, not just on fills
-- [ ] Timescale Cloud service created + migrations run (manual step)
-- [ ] Railway API service deployed (`DATABASE_URL` env var set)
-- [ ] Railway Worker service deployed (same repo, custom start command)
-- [ ] Vercel frontend deployed (`NEXT_PUBLIC_API_URL` env var set)
+- [x] Timescale Cloud: all 5 migrations applied (001-005 ✓)
+- [x] Railway: auto-deployed from git push (API + Worker services)
+- [x] Vercel: frontend deployed → https://quantflow-psi.vercel.app
 
 ### Documentation ✅
 - [x] `HOW_IT_WORKS.md` — Beginner-friendly guide (16 sections: algorithms, dashboard pages, data sources, quick start)
