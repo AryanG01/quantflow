@@ -1,5 +1,13 @@
 const API_BASE = "/api";
 
+export const FALLBACK_SYMBOLS = [
+  "BTC/USDT",
+  "ETH/USDT",
+  "SOL/USDT",
+  "AVAX/USDT",
+  "DOGE/USDT",
+];
+
 export interface Signal {
   symbol: string;
   direction: "long" | "short" | "flat";
@@ -114,7 +122,7 @@ export interface PortfolioAnalytics {
   daily_return: number | null;
   weekly_return: number | null;
   rolling_sharpe_30d: number | null;
-  max_drawdown: number;
+  max_drawdown: number | null;
   max_drawdown_duration_bars: number;
   equity_series: EquityCurvePoint[];
 }

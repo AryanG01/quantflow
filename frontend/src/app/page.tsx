@@ -138,7 +138,7 @@ export default function Dashboard() {
                 <div>
                   <span className="text-[var(--color-text-muted)]">Max DD</span>
                   <p className="font-semibold tabular-nums font-mono text-[var(--color-accent-red)]">
-                    {formatPct(-analytics.max_drawdown)}
+                    {analytics.max_drawdown != null ? formatPct(-analytics.max_drawdown) : "—"}
                   </p>
                 </div>
               </div>
@@ -179,7 +179,12 @@ export default function Dashboard() {
 
         {/* Right column: Risk + Regime */}
         <div className="space-y-4">
-          <RiskPanel risk={risk} />
+          <RiskPanel
+            risk={risk}
+            killSwitchThreshold={
+              (config?.risk as Record<string, unknown>)?.max_drawdown_pct as number ?? 0.15
+            }
+          />
 
           {/* Regime Detail */}
           <div className="card-glow bg-[var(--color-bg-card)] rounded-lg p-4">

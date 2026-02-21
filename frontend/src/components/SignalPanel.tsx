@@ -34,7 +34,7 @@ export function SignalPanel({ signals }: { signals: Signal[] }) {
           const style = directionStyle[sig.direction] || directionStyle.flat;
           return (
             <div
-              key={sig.symbol}
+              key={`${sig.symbol}-${sig.timestamp}`}
               className={`${style.bg} border ${style.border} rounded-lg px-4 py-2.5 flex items-center justify-between`}
             >
               <div className="flex items-center gap-3">

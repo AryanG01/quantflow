@@ -25,7 +25,7 @@ export function SharedHeader() {
         <span className="text-[var(--color-text-muted)]">v{health?.version ?? "—"}</span>
         {isConnected && isDbLive && (
           <span className="text-[var(--color-accent-cyan)] tabular-nums font-mono">
-            {health!.candle_count.toLocaleString()} candles
+            {health?.candle_count.toLocaleString()} candles
           </span>
         )}
         {/* Data source indicator */}

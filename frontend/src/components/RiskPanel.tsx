@@ -2,7 +2,13 @@
 
 import type { RiskMetrics } from "@/lib/api";
 
-export function RiskPanel({ risk }: { risk: RiskMetrics | null }) {
+export function RiskPanel({
+  risk,
+  killSwitchThreshold = 0.15,
+}: {
+  risk: RiskMetrics | null;
+  killSwitchThreshold?: number;
+}) {
   if (!risk) {
     return (
       <div className="card-glow bg-[var(--color-bg-card)] rounded-lg p-4">
@@ -39,12 +45,12 @@ export function RiskPanel({ risk }: { risk: RiskMetrics | null }) {
               className={`h-full rounded-full transition-all duration-500 ${
                 risk.current_drawdown_pct > 0.10 ? "bg-red-500" : risk.current_drawdown_pct > 0.05 ? "bg-amber-500" : "bg-emerald-500"
               }`}
-              style={{ width: `${Math.min(risk.current_drawdown_pct / 0.15 * 100, 100)}%` }}
+              style={{ width: `${Math.min(risk.current_drawdown_pct / killSwitchThreshold * 100, 100)}%` }}
             />
           </div>
           <div className="flex justify-between text-[10px] text-[var(--color-text-muted)] mt-0.5">
             <span>0%</span>
-            <span className="text-red-400/60">15% kill</span>
+            <span className="text-red-400/60">{(killSwitchThreshold * 100).toFixed(0)}% kill</span>
           </div>
         </div>
 

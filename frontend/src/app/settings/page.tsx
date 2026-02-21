@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import { api, ModelStatus, SystemConfig } from "@/lib/api";
 import { usePolling } from "@/hooks/usePolling";
 
@@ -21,7 +21,7 @@ const sectionMeta: Record<string, { label: string; description: string }> = {
   },
 };
 
-function renderValue(value: unknown, depth: number = 0): React.ReactNode {
+function renderValue(value: unknown, depth: number = 0): ReactNode {
   if (value === null || value === undefined) {
     return <span className="text-[var(--color-text-muted)]">null</span>;
   }

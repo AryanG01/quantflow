@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api, Trade } from "@/lib/api";
+import { api, FALLBACK_SYMBOLS, Trade } from "@/lib/api";
 import { usePolling } from "@/hooks/usePolling";
 import { ArrowLeftRight, Filter } from "lucide-react";
 
@@ -27,7 +27,7 @@ const regimeColors: Record<string, string> = {
   choppy: "text-[var(--color-regime-choppy)]",
 };
 
-const FALLBACK_SYMBOLS = ["BTC/USDT", "ETH/USDT", "SOL/USDT"];
+
 
 export default function TradesPage() {
   const { data: trades } = usePolling(useCallback(() => api.trades(), []), 10000);
@@ -37,7 +37,10 @@ export default function TradesPage() {
   const [symbols, setSymbols] = useState<string[]>(FALLBACK_SYMBOLS);
   useEffect(() => {
     api.universe().then((u) => {
-      if (u?.symbols?.length) setSymbols(u.symbols);
+      if (u?.symbols?.length) {
+        setSymbols(u.symbols);
+        setOrderSymbol(u.symbols[0]);
+      }
     });
   }, []);
 

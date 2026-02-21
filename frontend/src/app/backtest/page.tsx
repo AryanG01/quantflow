@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api, BacktestResult } from "@/lib/api";
+import { api, BacktestResult, FALLBACK_SYMBOLS } from "@/lib/api";
 import { usePolling } from "@/hooks/usePolling";
 import { BarChart3 } from "lucide-react";
 
@@ -39,8 +39,6 @@ const LOOKBACK_OPTIONS = [
   { value: 730, label: "2 years" },
 ];
 
-const FALLBACK_SYMBOLS = ["BTC/USDT", "ETH/USDT", "SOL/USDT"];
-
 export default function BacktestPage() {
   const { data: demoResults } = usePolling(
     useCallback(() => api.backtestResults(), []),
@@ -51,7 +49,10 @@ export default function BacktestPage() {
   const [symbols, setSymbols] = useState<string[]>(FALLBACK_SYMBOLS);
   useEffect(() => {
     api.universe().then((u) => {
-      if (u?.symbols?.length) setSymbols(u.symbols);
+      if (u?.symbols?.length) {
+        setSymbols(u.symbols);
+        setSymbol(u.symbols[0]);
+      }
     });
   }, []);
 
@@ -81,8 +82,12 @@ export default function BacktestPage() {
     }
   };
 
-  // Combine live results with demo results for display
-  const allResults = [...liveResults, ...(demoResults || [])];
+  // Combine live results with demo results, tagging each before sort to preserve LIVE flag
+  type TaggedResult = BacktestResult & { _isLive: boolean };
+  const allResults: TaggedResult[] = [
+    ...liveResults.map((r) => ({ ...r, _isLive: true })),
+    ...(demoResults || []).map((r) => ({ ...r, _isLive: false })),
+  ];
   const sorted = [...allResults].sort((a, b) => b.sharpe_ratio - a.sharpe_ratio);
   const best = sorted[0] as BacktestResult | undefined;
 
@@ -216,7 +221,6 @@ export default function BacktestPage() {
             </thead>
             <tbody>
               {sorted.map((r, i) => {
-                const isLive = i < liveResults.length;
                 return (
                   <tr
                     key={`${r.strategy}-${i}`}
@@ -228,7 +232,7 @@ export default function BacktestPage() {
                     <td className="px-5 py-3 font-semibold">
                       <span className="flex items-center gap-2">
                         {r.strategy}
-                        {isLive && (
+                        {r._isLive && (
                           <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[var(--color-accent-cyan)]/10 text-[var(--color-accent-cyan)] font-medium">
                             LIVE
                           </span>

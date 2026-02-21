@@ -35,7 +35,7 @@ export function PositionsTable({ positions }: { positions: Position[] }) {
             </thead>
             <tbody>
               {positions.map((pos) => (
-                <tr key={pos.symbol} className="border-b border-[var(--color-border)]/50 hover:bg-[var(--color-bg-card-hover)]">
+                <tr key={`${pos.symbol}-${pos.side}`} className="border-b border-[var(--color-border)]/50 hover:bg-[var(--color-bg-card-hover)]">
                   <td className="py-2.5 font-semibold">{pos.symbol}</td>
                   <td className={`py-2.5 uppercase text-[11px] font-bold ${pos.side === "long" ? "text-emerald-400" : "text-red-400"}`}>
                     {pos.side}
