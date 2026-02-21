@@ -117,8 +117,8 @@ async def backfill_candles(
             cursor=cursor.isoformat(),
         )
 
-        # Stop if we've reached the end or exchange returned fewer than requested
-        if len(candles) < batch_size:
+        # Stop only on empty batch — partial batches can occur mid-range
+        if not candles:
             break
 
     logger.info(

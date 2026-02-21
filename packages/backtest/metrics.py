@@ -113,6 +113,7 @@ def compute_all_metrics(
     total_trades: int,
     n_bars: int,
     timeframe: str = "4h",
+    positions: npt.NDArray[np.float64] | None = None,
 ) -> BacktestMetrics:
     """Compute all backtest metrics."""
     total_return = float(equity_curve[-1] / equity_curve[0] - 1) if len(equity_curve) > 0 else 0.0
@@ -129,7 +130,10 @@ def compute_all_metrics(
     profit_factor = compute_profit_factor(trade_returns)
 
     # Turnover: sum of absolute position changes / n_years
-    turnover = float(np.sum(np.abs(np.diff(returns)))) / n_years if n_years > 0 else 0.0
+    if positions is not None and len(positions) > 1:
+        turnover = float(np.sum(np.abs(np.diff(positions)))) / n_years if n_years > 0 else 0.0
+    else:
+        turnover = 0.0
 
     calmar = annualized_return / max_dd if max_dd > 0 else 0.0
 

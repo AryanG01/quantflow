@@ -55,9 +55,7 @@ def triple_barrier_labels(
         lower = entry_price * (1 - stop_loss_pct)
 
         end_idx = min(i + max_holding_bars, n - 1)
-
-        if i >= n - 1:
-            continue
+        full_window = end_idx == i + max_holding_bars
 
         label_assigned = False
         for j in range(i + 1, end_idx + 1):
@@ -71,7 +69,10 @@ def triple_barrier_labels(
                 break
 
         if not label_assigned:
-            # Time barrier hit: label based on return
+            # Time barrier: only assign label if the full future window was available.
+            # Tail bars with truncated windows keep label=-1 to avoid lookahead bias.
+            if not full_window:
+                continue
             final_return = prices[end_idx] / entry_price - 1
             if final_return > neutral_pct:
                 labels[i] = 2

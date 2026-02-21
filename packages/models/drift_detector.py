@@ -25,8 +25,9 @@ def compute_psi(
     Returns:
         PSI value
     """
-    # Create bins from reference distribution
+    # Create bins from reference distribution; deduplicate edges from sparse features
     edges = np.percentile(reference, np.linspace(0, 100, n_bins + 1))
+    edges = np.unique(edges)
     edges[0] = -np.inf
     edges[-1] = np.inf
 

@@ -52,12 +52,14 @@ class CostModel:
         self,
         trade_values: npt.NDArray[np.float64],
         adv_values: npt.NDArray[np.float64],
+        is_maker: bool = False,
     ) -> npt.NDArray[np.float64]:
         """Compute total transaction costs in basis points.
 
         Args:
             trade_values: Absolute dollar value of each trade
             adv_values: Average daily volume in dollars for each bar
+            is_maker: If True, use maker fee instead of taker fee
 
         Returns:
             Array of total costs in basis points per trade
@@ -68,7 +70,7 @@ class CostModel:
         slippage = self._config.fixed_spread_bps + (
             self._config.linear_impact_bps * trade_pct_of_adv
         )
-        fees = self._config.taker_fee_bps
+        fees = self._config.maker_fee_bps if is_maker else self._config.taker_fee_bps
 
         return slippage + fees
 
@@ -76,6 +78,7 @@ class CostModel:
         self,
         trade_values: npt.NDArray[np.float64],
         adv_values: npt.NDArray[np.float64],
+        is_maker: bool = False,
     ) -> npt.NDArray[np.float64]:
         """Compute costs as a fraction (e.g., 0.0015 = 15 bps)."""
-        return self.compute_costs_bps(trade_values, adv_values) / 10_000.0
+        return self.compute_costs_bps(trade_values, adv_values, is_maker=is_maker) / 10_000.0

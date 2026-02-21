@@ -77,6 +77,7 @@ def run_event_driven_backtest(
     actual_positions = np.zeros(n)
     cash = config.initial_capital
     position_qty = 0.0  # in units (fractional shares)
+    entry_price: float = 0.0  # price at which current position was entered
     events: list[Event] = []
     trade_returns_list: list[float] = []
 
@@ -105,9 +106,21 @@ def run_event_driven_backtest(
                     )[0]
                     cost_dollar = cost_pct * trade_value
 
+                    prev_qty = position_qty
                     cash -= actual_change * config.initial_capital
                     cash -= cost_dollar
                     position_qty += actual_change
+
+                    # Track entry price when opening a position
+                    if prev_qty == 0.0 and position_qty != 0.0:
+                        entry_price = price
+                    # Compute round-trip return when closing
+                    elif prev_qty != 0.0 and abs(position_qty) < abs(prev_qty) and entry_price > 0:
+                        round_trip_ret = (price / entry_price - 1) - cost_pct
+                        if abs(pos_change) > 0.01:
+                            trade_returns_list.append(round_trip_ret)
+                        if position_qty == 0.0:
+                            entry_price = 0.0
 
                     events.append(
                         Event(
@@ -120,9 +133,6 @@ def run_event_driven_backtest(
                             },
                         )
                     )
-
-                    if abs(pos_change) > 0.01:
-                        trade_returns_list.append(-cost_pct)
             else:
                 new_pending.append((fill_bar, target_pos))
         pending_orders = new_pending
@@ -149,9 +159,9 @@ def run_event_driven_backtest(
 
         actual_positions[i] = position_qty
 
-        # Mark-to-market
+        # Mark-to-market using actual entry price (not series start)
         position_value = (
-            position_qty * config.initial_capital * (price / closes[0] if closes[0] > 0 else 1)
+            position_qty * config.initial_capital * (price / entry_price if entry_price > 0 else 1)
         )
         equity[i] = cash + position_value
 
@@ -169,6 +179,7 @@ def run_event_driven_backtest(
         trade_returns=trade_returns,
         total_trades=len(trade_indices),
         n_bars=n,
+        positions=actual_positions,
     )
 
     return EventDrivenResult(

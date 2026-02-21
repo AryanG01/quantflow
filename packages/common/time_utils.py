@@ -36,7 +36,7 @@ def align_to_bar(dt: datetime, timeframe: str) -> datetime:
         raise ValueError(f"Unknown timeframe: {timeframe}")
 
     dt = to_utc(dt)
-    epoch = datetime(2000, 1, 1, tzinfo=UTC)
+    epoch = datetime(1970, 1, 1, tzinfo=UTC)
     elapsed = (dt - epoch).total_seconds()
     aligned_elapsed = (elapsed // seconds) * seconds
     return epoch + timedelta(seconds=aligned_elapsed)

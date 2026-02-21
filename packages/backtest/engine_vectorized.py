@@ -118,6 +118,7 @@ def run_vectorized_backtest(
         trade_returns=trade_returns,
         total_trades=len(trade_indices),
         n_bars=n,
+        positions=positions,
     )
 
     return BacktestResult(
