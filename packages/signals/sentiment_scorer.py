@@ -121,9 +121,11 @@ class SentimentScorer:
 
     def clear_old_events(self, before: datetime) -> int:
         """Remove events older than given time."""
-        original = len(self._events)
+        to_remove = [e for e in self._events if e.time < before]
+        hashes_to_remove = {self._hash_event(e) for e in to_remove}
+        self._seen_hashes -= hashes_to_remove
         self._events = [e for e in self._events if e.time >= before]
-        removed = original - len(self._events)
+        removed = len(to_remove)
         if removed > 0:
             logger.debug("cleared_old_events", count=removed)
         return removed

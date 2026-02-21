@@ -185,6 +185,17 @@ class SignalPipeline:
             max_position_pct=config.risk.max_position_pct,
         )
         self._drawdown_monitor = DrawdownMonitor(max_drawdown_pct=config.risk.max_drawdown_pct)
+        # Seed peak equity from historical max so kill switch survives restarts
+        try:
+            with engine.connect() as _conn:
+                row = _conn.execute(
+                    sa.text("SELECT MAX(equity) FROM portfolio_snapshots")
+                ).fetchone()
+                if row and row[0] is not None:
+                    self._drawdown_monitor._peak_equity = float(row[0])
+                    logger.info("drawdown_monitor_peak_seeded", peak_equity=row[0])
+        except Exception:
+            pass  # No snapshots yet; peak will be set on first update
 
         # Execution — apply half-spread slippage on paper fills
         self._order_manager = OrderManager(
@@ -439,8 +450,8 @@ class SignalPipeline:
 
         # Train regime detector
         if not self._regime_fitted:
-            log_ret = features["log_returns"].values[valid_mask]
-            real_vol = features["realized_vol"].values[valid_mask]
+            log_ret = features["log_returns"].values[valid_mask.to_numpy()]
+            real_vol = features["realized_vol"].values[valid_mask.to_numpy()]
             self._regime_detector.fit(log_ret, real_vol)
             self._regime_fitted = True
 

@@ -86,6 +86,8 @@ class RiskChecker:
 
         # Staleness check
         if data_timestamp is not None:
+            if data_timestamp.tzinfo is None:
+                data_timestamp = data_timestamp.replace(tzinfo=UTC)
             age_minutes = (datetime.now(UTC) - data_timestamp).total_seconds() / 60
             if age_minutes > self._staleness_threshold_minutes:
                 return False, (

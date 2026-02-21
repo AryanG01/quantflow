@@ -27,7 +27,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from packages.common.config import AppConfig, load_config, save_config
-from packages.common.logging import get_logger
+from packages.common.logging import get_logger, setup_logging
 
 logger = get_logger(__name__)
 
@@ -124,10 +124,18 @@ _orders_table = sa.Table(
 )
 
 
+_last_db_retry: float = 0.0
+_DB_RETRY_COOLDOWN = 30.0  # seconds between reconnect attempts during outage
+
+
 def _get_db() -> sa.engine.Engine | None:
     """Get database engine, creating it if needed."""
-    global _engine
+    global _engine, _last_db_retry
     if _engine is None:
+        now = time.monotonic()
+        if now - _last_db_retry < _DB_RETRY_COOLDOWN:
+            return None
+        _last_db_retry = now
         try:
             _engine = sa.create_engine(_cfg.database.url, pool_pre_ping=True)
             # Test connection
@@ -283,13 +291,13 @@ _start_time = datetime.now(UTC)
 def _generate_demo_data() -> dict[str, Any]:
     """Generate realistic demo data for the dashboard when DB is empty."""
     now = datetime.now(UTC)
-    random.seed(42)
+    rng = random.Random(42)
 
     # Equity curve: 90 days
     equity_history = []
     equity = 100_000.0
     for i in range(90 * 6):
-        daily_return = random.gauss(0.0003, 0.012)
+        daily_return = rng.gauss(0.0003, 0.012)
         equity *= 1 + daily_return
         ts = now - timedelta(hours=(90 * 6 - i) * 4)
         equity_history.append(EquityCurvePoint(timestamp=ts.isoformat(), equity=round(equity, 2)))
@@ -567,9 +575,9 @@ def _generate_demo_candles(symbol: str, lookback_days: int) -> list[dict[str, An
     for i in range(n_bars):
         ret = mu + sigma * rng.gauss(0, 1)
         price *= math.exp(ret)
-        high = price * (1 + abs(rng.gauss(0, 0.005)))
-        low = price * (1 - abs(rng.gauss(0, 0.005)))
         open_p = price * (1 + rng.gauss(0, 0.003))
+        high = max(price, open_p) * (1 + abs(rng.gauss(0, 0.005)))
+        low = min(price, open_p) * (1 - abs(rng.gauss(0, 0.005)))
         volume = rng.uniform(100, 5000) * (base_price / 1000)
         ts = now - timedelta(hours=(n_bars - i) * 4)
         candles.append(
@@ -592,6 +600,19 @@ def _get_candle_count() -> int:
     if not rows:
         return 0
     return int(rows[0][0])
+
+
+def _get_db_regime_history() -> list[dict[str, str]] | None:
+    """Get regime history as a time series (most recent 50 entries)."""
+    query = (
+        sa.select(_signals_table.c.time, _signals_table.c.regime)
+        .order_by(_signals_table.c.time.desc())
+        .limit(50)
+    )
+    rows = _db_query(query)
+    if not rows:
+        return None
+    return [{"timestamp": r.time.isoformat(), "regime": r.regime} for r in reversed(rows)]
 
 
 def _get_db_signals() -> list[SignalResponse] | None:
@@ -725,6 +746,7 @@ def _get_db_trades() -> list[TradeResponse] | None:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:  # noqa: ARG001
     """Initialize DB connection on startup."""
+    setup_logging()
     _get_db()
     yield
     if _engine:
@@ -810,10 +832,13 @@ async def get_regime() -> RegimeResponse | None:
     db_signals = _get_db_signals()
     if db_signals:
         current = db_signals[0]
+        history = _get_db_regime_history() or [
+            {"timestamp": s.timestamp, "regime": s.regime} for s in db_signals
+        ]
         return RegimeResponse(
             current=current.regime,
             confidence=current.confidence,
-            history=[{"timestamp": s.timestamp, "regime": s.regime} for s in db_signals],
+            history=history,
         )
     return cast("RegimeResponse", _get_demo()["regime"])
 
