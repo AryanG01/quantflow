@@ -21,6 +21,12 @@ class RegimeDetector:
     """3-state Gaussian HMM regime detector."""
 
     def __init__(self, n_states: int = 3, n_iter: int = 100, random_state: int = 42) -> None:
+        if n_states != 3:
+            raise ValueError(
+                f"RegimeDetector requires exactly 3 states (trending/mean-reverting/choppy); "
+                f"got n_states={n_states}. "
+                f"The _map_states_to_regimes() mapping is hardcoded for 3 states."
+            )
         self._n_states = n_states
         self._n_iter = n_iter
         self._random_state = random_state

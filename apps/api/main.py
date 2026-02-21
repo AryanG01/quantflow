@@ -266,7 +266,7 @@ class PortfolioAnalyticsResponse(BaseModel):
     equity_series: list[EquityCurvePoint]  # full equity history for chart
 
 
-class ModelRetainResponse(BaseModel):
+class ModelRetrainResponse(BaseModel):
     status: str
     message: str
     model_id: str | None = None
@@ -1264,8 +1264,8 @@ _retrain_lock: asyncio.Lock = asyncio.Lock()
 _last_retrain_result: dict[str, Any] = {}
 
 
-@app.post("/api/model/retrain", response_model=ModelRetainResponse)
-async def trigger_retrain() -> ModelRetainResponse:
+@app.post("/api/model/retrain", response_model=ModelRetrainResponse)
+async def trigger_retrain() -> ModelRetrainResponse:
     """Trigger a synchronous model retrain using the latest candle data.
 
     Runs walk-forward training on BTC/USDT (primary symbol) using DB candles.
@@ -1274,7 +1274,7 @@ async def trigger_retrain() -> ModelRetainResponse:
     global _last_retrain_result
 
     if _retrain_lock.locked():
-        return ModelRetainResponse(
+        return ModelRetrainResponse(
             status="busy",
             message="Retrain already in progress, try again shortly.",
         )
@@ -1302,7 +1302,7 @@ async def trigger_retrain() -> ModelRetainResponse:
             )
             engine = _get_db()
             if engine is None:
-                return ModelRetainResponse(
+                return ModelRetrainResponse(
                     status="error",
                     message="Database unavailable — cannot retrain without candle data.",
                 )
@@ -1313,7 +1313,7 @@ async def trigger_retrain() -> ModelRetainResponse:
                 ).fetchall()
 
             if len(rows) < 200:
-                return ModelRetainResponse(
+                return ModelRetrainResponse(
                     status="error",
                     message=f"Insufficient candle data: {len(rows)} bars (need 200+).",
                 )
@@ -1343,7 +1343,7 @@ async def trigger_retrain() -> ModelRetainResponse:
             valid_labels = labels >= 0
 
             if valid_labels.sum() < 50:
-                return ModelRetainResponse(
+                return ModelRetrainResponse(
                     status="error",
                     message=f"Too few valid labels: {valid_labels.sum()} (need 50+).",
                 )
@@ -1390,7 +1390,7 @@ async def trigger_retrain() -> ModelRetainResponse:
                 "train_accuracy": val_acc,
                 "last_trained": now_str,
             }
-            return ModelRetainResponse(
+            return ModelRetrainResponse(
                 status="ok",
                 message=f"Retrained on {int(valid_labels.sum())} samples.",
                 model_id="lightgbm_latest",
@@ -1399,7 +1399,7 @@ async def trigger_retrain() -> ModelRetainResponse:
             )
         except Exception as e:
             logger.error("retrain_failed", error=str(e))
-            return ModelRetainResponse(status="error", message=str(e))
+            return ModelRetrainResponse(status="error", message=str(e))
 
 
 class ExchangeTestRequest(BaseModel):
@@ -1449,8 +1449,8 @@ async def test_exchange_keys(body: ExchangeTestRequest) -> ExchangeTestResponse:
         return ExchangeTestResponse(status="error", message=f"Connection failed: {err[:100]}")
 
 
-@app.get("/api/model/status", response_model=ModelRetainResponse)
-async def get_model_status() -> ModelRetainResponse:
+@app.get("/api/model/status", response_model=ModelRetrainResponse)
+async def get_model_status() -> ModelRetrainResponse:
     """Return status of the last retrain operation."""
     if not _last_retrain_result:
         # Try to read metadata from registry
@@ -1459,7 +1459,7 @@ async def get_model_status() -> ModelRetainResponse:
 
             registry = ModelRegistry(base_dir="models")
             _model, meta = registry.load("lightgbm_latest")
-            return ModelRetainResponse(
+            return ModelRetrainResponse(
                 status="ok",
                 message="Model loaded from registry.",
                 model_id="lightgbm_latest",
@@ -1467,8 +1467,8 @@ async def get_model_status() -> ModelRetainResponse:
                 last_trained=meta.created_at,
             )
         except (FileNotFoundError, OSError):
-            return ModelRetainResponse(status="no_model", message="No trained model found.")
-    return ModelRetainResponse(
+            return ModelRetrainResponse(status="no_model", message="No trained model found.")
+    return ModelRetrainResponse(
         status=_last_retrain_result.get("status", "ok"),
         message="Last retrain result.",
         model_id=_last_retrain_result.get("model_id"),

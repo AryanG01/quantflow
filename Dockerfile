@@ -19,6 +19,7 @@ COPY packages/ packages/
 COPY apps/ apps/
 COPY scripts/ scripts/
 COPY config/ config/
+RUN mkdir -p /app/models
 COPY models/ models/
 ENV PYTHONPATH=/app
 
