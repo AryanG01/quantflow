@@ -12,8 +12,13 @@ export function usePolling<T>(
   const poll = useCallback(async () => {
     try {
       const result = await fetcher();
-      setData(result);
-      setError(false);
+      if (result !== null) {
+        setData(result);
+        setError(false);
+      } else {
+        // Transient failure — keep last known data, just flag the error
+        setError(true);
+      }
     } catch {
       setError(true);
     } finally {

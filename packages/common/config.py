@@ -133,7 +133,7 @@ class SignalFusionConfig(BaseModel):
     choppy_scale: float = 0.3
     direction_threshold: float = 0.05  # |strength| above this → directional signal
     confidence_min_iqr: float = 0.2  # IQR at which model confidence → 1.0
-    confidence_max_iqr: float = 1.5  # IQR at which model confidence → 0.0
+    confidence_max_iqr: float = 2.0  # IQR at which model confidence → 0.0
 
 
 class SignalsConfig(BaseModel):

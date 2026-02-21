@@ -70,7 +70,7 @@ signals:
     choppy_scale: 0.5
     direction_threshold: 0.02
     confidence_min_iqr: 0.2
-    confidence_max_iqr: 1.5
+    confidence_max_iqr: 2.0
 risk:
   vol_target: 0.15
   max_position_pct: 0.25

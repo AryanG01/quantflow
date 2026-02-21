@@ -142,7 +142,7 @@ export interface ExchangeTestResult {
 
 async function fetchJson<T>(path: string): Promise<T | null> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 5000);
+  const timer = setTimeout(() => controller.abort(), 10000);
   try {
     const res = await fetch(`${API_BASE}${path}`, {
       cache: "no-store",
