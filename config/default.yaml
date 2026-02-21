@@ -51,10 +51,6 @@ regime:
   - log_returns
   - realized_vol
   retrain_interval_days: 7
-  state_mapping:
-    trending: 0
-    mean_reverting: 1
-    choppy: 2
 signals:
   fusion:
     method: regime_gated_moe
@@ -82,7 +78,7 @@ risk:
   max_drawdown_pct: 0.15
   max_concentration_pct: 0.3
   min_trade_usd: 10.0
-  staleness_threshold_minutes: 360
+  staleness_threshold_minutes: 90
 execution:
   mode: paper
   order_timeout_seconds: 120

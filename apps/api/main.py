@@ -32,6 +32,9 @@ from packages.common.logging import get_logger, setup_logging
 logger = get_logger(__name__)
 
 
+# ── Seeded RNG for deterministic demo data ────────────────────
+_rng = random.Random(42)
+
 # ── Database ─────────────────────────────────────────────────
 
 _cfg = load_config()
@@ -270,7 +273,7 @@ class ModelRetrainResponse(BaseModel):
     status: str
     message: str
     model_id: str | None = None
-    train_accuracy: float | None = None
+    val_accuracy: float | None = None
     last_trained: str | None = None
 
 
@@ -402,26 +405,26 @@ def _generate_demo_data() -> dict[str, Any]:
         sym = trade_symbols[i % 3]
         side = "buy" if i % 2 == 0 else "sell"
         price = {
-            "BTC/USDT": 95_000 + random.uniform(-3000, 3000),
-            "ETH/USDT": 3_400 + random.uniform(-200, 200),
-            "SOL/USDT": 180 + random.uniform(-20, 20),
+            "BTC/USDT": 95_000 + _rng.uniform(-3000, 3000),
+            "ETH/USDT": 3_400 + _rng.uniform(-200, 200),
+            "SOL/USDT": 180 + _rng.uniform(-20, 20),
         }[sym]
         qty = {
-            "BTC/USDT": round(random.uniform(0.01, 0.5), 4),
-            "ETH/USDT": round(random.uniform(0.5, 5), 3),
-            "SOL/USDT": round(random.uniform(5, 50), 2),
+            "BTC/USDT": round(_rng.uniform(0.01, 0.5), 4),
+            "ETH/USDT": round(_rng.uniform(0.5, 5), 3),
+            "SOL/USDT": round(_rng.uniform(5, 50), 2),
         }[sym]
         trades.append(
             TradeResponse(
                 id=f"T{1000 + i}",
-                timestamp=(now - timedelta(hours=i * 4 + random.randint(0, 3))).isoformat(),
+                timestamp=(now - timedelta(hours=i * 4 + _rng.randint(0, 3))).isoformat(),
                 symbol=sym,
                 side=side,
                 quantity=qty,
                 price=round(price, 2),
                 fees=round(price * qty * 0.001, 2),
-                pnl=round(random.uniform(-500, 800), 2),
-                signal_strength=round(random.uniform(-1, 1), 3),
+                pnl=round(_rng.uniform(-500, 800), 2),
+                signal_strength=round(_rng.uniform(-1, 1), 3),
                 regime=["trending", "mean_reverting", "choppy"][i % 3],
             )
         )
@@ -1057,9 +1060,8 @@ class OrderCreateRequest(BaseModel):
 @app.post("/api/orders", response_model=TradeResponse)
 async def place_order(body: OrderCreateRequest) -> TradeResponse:
     """Place a paper trading order with pre-trade risk checks."""
-    from packages.common.types import Direction, OrderType, Regime, Side, Signal
+    from packages.common.types import OrderType, Side
     from packages.execution.order_manager import OrderManager
-    from packages.risk.risk_checks import RiskChecker
 
     # Get latest price for market orders
     prices = _get_latest_prices()
@@ -1074,52 +1076,34 @@ async def place_order(body: OrderCreateRequest) -> TradeResponse:
         )
 
     # Pre-trade risk check
+    # B6: Read drawdown from the DB snapshot rather than a fresh in-memory RiskChecker
+    # (a fresh checker always has kill_switch_active=False, ignoring the worker's state).
     portfolio = _get_db_portfolio()
     if portfolio:
-        from packages.common.types import PortfolioSnapshot
-
-        snap = PortfolioSnapshot(
-            time=datetime.now(UTC),
-            equity=portfolio.equity,
-            cash=portfolio.cash,
-            positions_value=portfolio.positions_value,
-            unrealized_pnl=portfolio.unrealized_pnl,
-            realized_pnl=portfolio.realized_pnl,
-            drawdown_pct=portfolio.drawdown_pct,
-        )
-        checker = RiskChecker(
-            max_drawdown_pct=_cfg.risk.max_drawdown_pct,
-            max_concentration_pct=_cfg.risk.max_concentration_pct,
-            max_position_pct=_cfg.risk.max_position_pct,
-            min_trade_usd=_cfg.risk.min_trade_usd,
-            staleness_threshold_minutes=_cfg.risk.staleness_threshold_minutes,
-        )
-        direction = Direction.LONG if body.side.lower() == "buy" else Direction.SHORT
-        dummy_signal = Signal(
-            time=datetime.now(UTC),
-            symbol=body.symbol,
-            direction=direction,
-            strength=0.5,
-            confidence=0.5,
-            regime=Regime.TRENDING,
-            components={},
-        )
-        trade_value = body.quantity * latest_price
         from fastapi import HTTPException
 
-        from packages.common.errors import KillSwitchError  # noqa: PLC0415
+        trade_value = body.quantity * latest_price
 
-        try:
-            approved, reason = checker.check_pre_trade(
-                dummy_signal,
-                snap,
-                trade_value,
-                data_timestamp=datetime.now(UTC),
+        if portfolio.drawdown_pct >= _cfg.risk.max_drawdown_pct:
+            raise HTTPException(
+                status_code=400,
+                detail="Kill switch active: drawdown limit exceeded",
             )
-        except KillSwitchError as e:
-            raise HTTPException(status_code=400, detail=f"Kill switch active: {e}") from e
-        if not approved:
-            raise HTTPException(status_code=400, detail=f"Risk check rejected: {reason}")
+        if trade_value < _cfg.risk.min_trade_usd:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Trade value ${trade_value:.2f} below minimum ${_cfg.risk.min_trade_usd}",
+            )
+        if portfolio.equity > 0:
+            concentration = (portfolio.positions_value + trade_value) / portfolio.equity
+            if concentration > _cfg.risk.max_concentration_pct:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Concentration {concentration:.1%} exceeds "
+                        f"max {_cfg.risk.max_concentration_pct:.1%}"
+                    ),
+                )
 
     order_mgr = OrderManager(paper_mode=True)
 
@@ -1264,12 +1248,118 @@ _retrain_lock: asyncio.Lock = asyncio.Lock()
 _last_retrain_result: dict[str, Any] = {}
 
 
+def _run_retrain_sync(cfg: AppConfig, engine: sa.engine.Engine) -> ModelRetrainResponse:
+    """CPU-bound retrain logic run in a thread pool via asyncio.to_thread."""
+    import pandas as pd
+
+    from packages.features.normalizer import RollingZScoreNormalizer
+    from packages.features.technical import TechnicalFeatures
+    from packages.models.labeling import triple_barrier_labels
+    from packages.models.lightgbm_model import LightGBMQuantileModel
+    from packages.models.model_registry import ModelRegistry
+    from packages.models.training import run_walk_forward
+
+    primary_symbol = cfg.universe.symbols[0] if cfg.universe.symbols else "BTC/USDT"
+    query = sa.text(
+        """
+        SELECT time, open, high, low, close, volume
+        FROM candles
+        WHERE symbol = :symbol AND timeframe = :tf
+        ORDER BY time ASC
+        LIMIT 2000
+        """
+    )
+
+    with engine.connect() as conn:
+        rows = conn.execute(
+            query, {"symbol": primary_symbol, "tf": cfg.universe.timeframe}
+        ).fetchall()
+
+    if len(rows) < 200:
+        return ModelRetrainResponse(
+            status="error",
+            message=f"Insufficient candle data: {len(rows)} bars (need 200+).",
+        )
+
+    df = pd.DataFrame(rows, columns=["time", "open", "high", "low", "close", "volume"])
+
+    tech_cfg = cfg.features.technical
+    feature_computer = TechnicalFeatures(
+        rsi_period=tech_cfg.rsi_period,
+        atr_period=tech_cfg.atr_period,
+        bb_period=tech_cfg.bb_period,
+        bb_std=tech_cfg.bb_std,
+        vol_window=tech_cfg.vol_window,
+        vwap_period=tech_cfg.vwap_period,
+        bars_per_year=tech_cfg.bars_per_year,
+    )
+    norm_cfg = cfg.features.normalization
+    normalizer = RollingZScoreNormalizer(window=norm_cfg.window, shift=norm_cfg.shift)
+
+    features = feature_computer.compute(df)
+    normalized = normalizer.normalize(features)
+    valid_mask = normalized.notna().all(axis=1)
+    clean_features = normalized[valid_mask]
+    clean_candles = df[valid_mask].reset_index(drop=True)
+
+    labels = triple_barrier_labels(clean_candles["close"], config=cfg.model.labeling)
+    valid_labels = labels >= 0
+
+    if valid_labels.sum() < 50:
+        return ModelRetrainResponse(
+            status="error",
+            message=f"Too few valid labels: {valid_labels.sum()} (need 50+).",
+        )
+
+    model = LightGBMQuantileModel(
+        quantiles=cfg.model.quantiles,
+        n_estimators=cfg.model.n_estimators,
+        learning_rate=cfg.model.learning_rate,
+        max_depth=cfg.model.max_depth,
+        num_leaves=cfg.model.num_leaves,
+    )
+
+    # Walk-forward to get validation accuracy
+    wf_results = run_walk_forward(
+        model,
+        clean_features[valid_labels],
+        labels[valid_labels],
+        config=cfg.model.walk_forward,
+    )
+    val_acc = (
+        float(sum(r.test_accuracy for r in wf_results) / len(wf_results)) if wf_results else None
+    )
+
+    # Full retrain on all data and save
+    model.train(clean_features[valid_labels], labels[valid_labels])
+    registry = ModelRegistry(base_dir="models")
+    registry.save(
+        model=model,
+        model_id="lightgbm_latest",
+        model_type="lightgbm_quantile",
+        train_metrics={
+            "n_samples": int(valid_labels.sum()),
+            "val_accuracy": val_acc or 0.0,
+        },
+        feature_names=list(clean_features.columns),
+    )
+
+    now_str = datetime.now(UTC).isoformat()
+    return ModelRetrainResponse(
+        status="ok",
+        message=f"Retrained on {int(valid_labels.sum())} samples.",
+        model_id="lightgbm_latest",
+        val_accuracy=round(val_acc, 4) if val_acc is not None else None,
+        last_trained=now_str,
+    )
+
+
 @app.post("/api/model/retrain", response_model=ModelRetrainResponse)
 async def trigger_retrain() -> ModelRetrainResponse:
-    """Trigger a synchronous model retrain using the latest candle data.
+    """Trigger a model retrain using the latest candle data.
 
-    Runs walk-forward training on BTC/USDT (primary symbol) using DB candles.
-    The resulting model is saved to the model registry on disk.
+    Runs walk-forward training on the primary symbol using DB candles.
+    CPU-bound work runs in a thread pool so the event loop stays responsive.
     """
     global _last_retrain_result
 
@@ -1279,124 +1369,24 @@ async def trigger_retrain() -> ModelRetrainResponse:
             message="Retrain already in progress, try again shortly.",
         )
 
+    engine = _get_db()
+    if engine is None:
+        return ModelRetrainResponse(
+            status="error",
+            message="Database unavailable — cannot retrain without candle data.",
+        )
+
     async with _retrain_lock:
         try:
-            import pandas as pd
-
-            from packages.features.normalizer import RollingZScoreNormalizer
-            from packages.features.technical import TechnicalFeatures
-            from packages.models.labeling import triple_barrier_labels
-            from packages.models.lightgbm_model import LightGBMQuantileModel
-            from packages.models.model_registry import ModelRegistry
-            from packages.models.training import run_walk_forward
-
-            primary_symbol = _cfg.universe.symbols[0] if _cfg.universe.symbols else "BTC/USDT"
-            query = sa.text(
-                """
-                SELECT time, open, high, low, close, volume
-                FROM candles
-                WHERE symbol = :symbol AND timeframe = :tf
-                ORDER BY time ASC
-                LIMIT 2000
-                """
-            )
-            engine = _get_db()
-            if engine is None:
-                return ModelRetrainResponse(
-                    status="error",
-                    message="Database unavailable — cannot retrain without candle data.",
-                )
-
-            with engine.connect() as conn:
-                rows = conn.execute(
-                    query, {"symbol": primary_symbol, "tf": _cfg.universe.timeframe}
-                ).fetchall()
-
-            if len(rows) < 200:
-                return ModelRetrainResponse(
-                    status="error",
-                    message=f"Insufficient candle data: {len(rows)} bars (need 200+).",
-                )
-
-            df = pd.DataFrame(rows, columns=["time", "open", "high", "low", "close", "volume"])
-
-            tech_cfg = _cfg.features.technical
-            feature_computer = TechnicalFeatures(
-                rsi_period=tech_cfg.rsi_period,
-                atr_period=tech_cfg.atr_period,
-                bb_period=tech_cfg.bb_period,
-                bb_std=tech_cfg.bb_std,
-                vol_window=tech_cfg.vol_window,
-                vwap_period=tech_cfg.vwap_period,
-                bars_per_year=tech_cfg.bars_per_year,
-            )
-            norm_cfg = _cfg.features.normalization
-            normalizer = RollingZScoreNormalizer(window=norm_cfg.window, shift=norm_cfg.shift)
-
-            features = feature_computer.compute(df)
-            normalized = normalizer.normalize(features)
-            valid_mask = normalized.notna().all(axis=1)
-            clean_features = normalized[valid_mask]
-            clean_candles = df[valid_mask].reset_index(drop=True)
-
-            labels = triple_barrier_labels(clean_candles["close"], config=_cfg.model.labeling)
-            valid_labels = labels >= 0
-
-            if valid_labels.sum() < 50:
-                return ModelRetrainResponse(
-                    status="error",
-                    message=f"Too few valid labels: {valid_labels.sum()} (need 50+).",
-                )
-
-            model = LightGBMQuantileModel(
-                quantiles=_cfg.model.quantiles,
-                n_estimators=_cfg.model.n_estimators,
-                learning_rate=_cfg.model.learning_rate,
-                max_depth=_cfg.model.max_depth,
-                num_leaves=_cfg.model.num_leaves,
-            )
-
-            # Walk-forward to get validation accuracy
-            wf_results = run_walk_forward(
-                model,
-                clean_features[valid_labels],
-                labels[valid_labels],
-                config=_cfg.model.walk_forward,
-            )
-            val_acc = (
-                float(sum(r.test_accuracy for r in wf_results) / len(wf_results))
-                if wf_results
-                else None
-            )
-
-            # Full retrain on all data and save
-            model.train(clean_features[valid_labels], labels[valid_labels])
-            registry = ModelRegistry(base_dir="models")
-            registry.save(
-                model=model,
-                model_id="lightgbm_latest",
-                model_type="lightgbm_quantile",
-                train_metrics={
-                    "n_samples": int(valid_labels.sum()),
-                    "val_accuracy": val_acc or 0.0,
-                },
-                feature_names=list(clean_features.columns),
-            )
-
-            now_str = datetime.now(UTC).isoformat()
-            _last_retrain_result = {
-                "status": "ok",
-                "model_id": "lightgbm_latest",
-                "train_accuracy": val_acc,
-                "last_trained": now_str,
-            }
-            return ModelRetrainResponse(
-                status="ok",
-                message=f"Retrained on {int(valid_labels.sum())} samples.",
-                model_id="lightgbm_latest",
-                train_accuracy=round(val_acc, 4) if val_acc is not None else None,
-                last_trained=now_str,
-            )
+            result = await asyncio.to_thread(_run_retrain_sync, _cfg, engine)
+            if result.status == "ok":
+                _last_retrain_result = {
+                    "status": result.status,
+                    "model_id": result.model_id,
+                    "val_accuracy": result.val_accuracy,
+                    "last_trained": result.last_trained,
+                }
+            return result
         except Exception as e:
             logger.error("retrain_failed", error=str(e))
             return ModelRetrainResponse(status="error", message=str(e))
@@ -1422,6 +1412,11 @@ async def test_exchange_keys(body: ExchangeTestRequest) -> ExchangeTestResponse:
     """
     import hashlib
     import hmac
+
+    if not body.api_key.strip() or not body.api_secret.strip():
+        from fastapi import HTTPException
+
+        raise HTTPException(status_code=400, detail="API key and secret cannot be empty")
 
     try:
         timestamp = int(time.time() * 1000)
@@ -1463,7 +1458,7 @@ async def get_model_status() -> ModelRetrainResponse:
                 status="ok",
                 message="Model loaded from registry.",
                 model_id="lightgbm_latest",
-                train_accuracy=meta.train_metrics.get("val_accuracy"),
+                val_accuracy=meta.train_metrics.get("val_accuracy"),
                 last_trained=meta.created_at,
             )
         except (FileNotFoundError, OSError):
@@ -1472,6 +1467,6 @@ async def get_model_status() -> ModelRetrainResponse:
         status=_last_retrain_result.get("status", "ok"),
         message="Last retrain result.",
         model_id=_last_retrain_result.get("model_id"),
-        train_accuracy=_last_retrain_result.get("train_accuracy"),
+        val_accuracy=_last_retrain_result.get("val_accuracy"),
         last_trained=_last_retrain_result.get("last_trained"),
     )

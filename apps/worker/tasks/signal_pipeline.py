@@ -226,6 +226,15 @@ class SignalPipeline:
             self._portfolio_store.save_snapshot(existing)
             logger.info("initial_portfolio_snapshot_written", equity=existing.equity)
 
+        # A1: Restore kill switch if prior drawdown exceeded threshold (survives restarts)
+        try:
+            snapshot = self._portfolio_store.get_snapshot()
+            if snapshot.drawdown_pct >= config.risk.max_drawdown_pct:
+                self._risk_checker._kill_switch_active = True
+                logger.critical("kill_switch_restored_from_db", drawdown_pct=snapshot.drawdown_pct)
+        except Exception:
+            pass  # No snapshot yet; kill switch will be set on first drawdown breach
+
     # ── DB helpers ────────────────────────────────────────────
 
     def _compute_portfolio_stats(self) -> tuple[float, float | None]:
@@ -329,6 +338,18 @@ class SignalPipeline:
             logger.debug("order_persisted", order_id=o.id)
         except Exception as e:
             logger.warning("order_persist_failed", error=str(e))
+
+    def _get_existing_quantity(self, symbol: str) -> float:
+        """Return current open quantity for a symbol from the positions table."""
+        query = sa.select(_positions_table.c.quantity).where(_positions_table.c.symbol == symbol)
+        try:
+            with self._engine.connect() as conn:
+                row = conn.execute(query).fetchone()
+            if row and row[0] is not None:
+                return float(row[0])
+        except Exception:
+            pass
+        return 0.0
 
     def _get_position_entry_price(self, symbol: str) -> float | None:
         """Look up current avg_entry_price for a symbol from positions table."""
@@ -595,8 +616,12 @@ class SignalPipeline:
                 signal, portfolio, current_price, realized_vol
             )
 
+            # B2: Delta sizing — only trade the difference vs existing position
+            existing_qty = self._get_existing_quantity(symbol)
+            quantity = max(0.0, quantity - existing_qty)
+
             if quantity < 1e-8 or signal.direction == Direction.FLAT:
-                return
+                return  # Skip flat or negligible signals
 
             trade_value = quantity * current_price
             approved, reason = self._risk_checker.check_pre_trade(
@@ -632,13 +657,12 @@ class SignalPipeline:
                 status=order.status.value,
             )
 
-            # 10b. Compute realized PnL for sell orders
+            # 10b. Compute realized PnL and update portfolio state after fill
             trade_realized_pnl = 0.0
             if order.status == OrderStatus.FILLED:
                 fill_price = order.avg_fill_price or current_price
                 fill_cost = fill_price * order.filled_qty
-                fee_rate = self._taker_fee_rate()
-                fees = fill_cost * fee_rate
+                fees = fill_cost * self._taker_fee_rate()
 
                 if side == Side.SELL:
                     entry_price = self._get_position_entry_price(symbol)
@@ -656,11 +680,6 @@ class SignalPipeline:
 
             # 10d. Update portfolio state after fill
             if order.status == OrderStatus.FILLED:
-                fill_price = order.avg_fill_price or current_price
-                fill_cost = fill_price * order.filled_qty
-                fee_rate = self._taker_fee_rate()
-                fees = fill_cost * fee_rate
-
                 prev = portfolio
                 if side == Side.BUY:
                     new_cash = prev.cash - fill_cost - fees
@@ -678,9 +697,7 @@ class SignalPipeline:
                     cash=new_cash,
                     positions_value=new_positions_value,
                     unrealized_pnl=0.0,
-                    realized_pnl=prev.realized_pnl
-                    + trade_realized_pnl
-                    - (fees if side == Side.BUY else 0.0),
+                    realized_pnl=prev.realized_pnl + trade_realized_pnl,
                     drawdown_pct=dd,
                 )
                 self._portfolio_store.save_snapshot(new_snapshot)
@@ -700,7 +717,7 @@ class SignalPipeline:
         except Exception as e:
             record_error("signal_pipeline")
             logger.error("pipeline_error", symbol=symbol, error=str(e))
-            raise
+            # Do not re-raise — let other symbols continue
 
     async def run(self) -> None:
         """Run pipeline for all configured symbols."""

@@ -78,7 +78,7 @@ class LightGBMQuantileModel(ModelPredictor):
             model.fit(X, y.astype(np.float64))
             self._models[q] = model
 
-        return {"train_accuracy": train_acc}
+        return {"val_accuracy": train_acc}
 
     def predict(self, X: pd.DataFrame) -> list[PredictionResult]:
         """Generate predictions with uncertainty estimates."""

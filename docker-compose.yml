@@ -38,6 +38,7 @@ services:
       POSTGRES_USER: trading
       POSTGRES_PASSWORD: changeme
       POSTGRES_SSLMODE: disable
+      REDIS_URL: redis://redis:6379/0
     ports:
       - "8000:8000"
     depends_on:
@@ -56,6 +57,7 @@ services:
       POSTGRES_USER: trading
       POSTGRES_PASSWORD: changeme
       POSTGRES_SSLMODE: disable
+      REDIS_URL: redis://redis:6379/0
     depends_on:
       timescaledb:
         condition: service_healthy

@@ -34,6 +34,11 @@ class TechnicalFeatures(FeatureComputer):
         self._bars_per_year = bars_per_year
 
     def compute(self, candles: pd.DataFrame) -> pd.DataFrame:
+        """Compute all technical features from OHLCV candles.
+
+        Rolling statistics (realized_vol, VWAP) use .shift(1) to prevent
+        lookahead bias — a bar cannot see its own data in its rolling window.
+        """
         close = candles["close"]
         high = candles["high"]
         low = candles["low"]

@@ -26,13 +26,13 @@ class CoinbaseExecutor(ExecutionAdapter):
         config: ExchangeConfig,
         api_key: str = "",
         api_secret: str = "",
-        passphrase: str = "",
     ) -> None:
+        # CDP credentials: api_key = "organizations/.../apiKeys/..."
+        # api_secret = EC private key PEM (no passphrase).
         self._exchange = ccxt.coinbase(
             {
                 "apiKey": api_key,
                 "secret": api_secret,
-                "password": passphrase,
                 "sandbox": config.sandbox,
                 "enableRateLimit": True,
             }

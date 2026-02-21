@@ -41,7 +41,9 @@ class VolTargetPositionSizer:
             realized_vol: Current annualized realized volatility
 
         Returns:
-            Position size in base units (e.g., BTC quantity)
+            Desired total position size in base units (e.g., BTC quantity).
+            This is the *target* position, not a delta — callers must subtract
+            the existing position quantity to get the order size.
         """
         if realized_vol <= 0 or current_price <= 0 or portfolio.equity <= 0:
             return 0.0

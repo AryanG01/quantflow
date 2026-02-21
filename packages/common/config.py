@@ -113,9 +113,6 @@ class RegimeConfig(BaseModel):
     n_states: int = 3
     features: list[str] = Field(default_factory=lambda: ["log_returns", "realized_vol"])
     retrain_interval_days: int = 7
-    state_mapping: dict[str, int] = Field(
-        default_factory=lambda: {"trending": 0, "mean_reverting": 1, "choppy": 2}
-    )
 
 
 class RegimeWeights(BaseModel):

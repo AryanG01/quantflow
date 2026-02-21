@@ -494,11 +494,11 @@ export default function SettingsPage() {
                       <span className="font-mono tabular-nums">{new Date(modelStatus.last_trained).toLocaleString()}</span>
                     </div>
                   )}
-                  {modelStatus.train_accuracy != null && (
+                  {modelStatus.val_accuracy != null && (
                     <div className="flex gap-2">
                       <span className="text-[var(--color-text-muted)]">Validation accuracy:</span>
                       <span className="font-mono tabular-nums text-[var(--color-accent-cyan)]">
-                        {(modelStatus.train_accuracy * 100).toFixed(1)}%
+                        {(modelStatus.val_accuracy * 100).toFixed(1)}%
                       </span>
                     </div>
                   )}

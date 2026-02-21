@@ -131,7 +131,7 @@ export interface ModelStatus {
   status: string;
   message: string;
   model_id: string | null;
-  train_accuracy: number | null;
+  val_accuracy: number | null;
   last_trained: string | null;
 }
 

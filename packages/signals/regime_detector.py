@@ -59,12 +59,14 @@ class RegimeDetector:
             random_state=self._random_state,
         )
         self._model.fit(X_clean)
+        if not self._model.monitor_.converged:
+            logger.warning("hmm_did_not_converge", n_iter=self._n_iter, n_samples=len(X_clean))
         self._map_states_to_regimes()
 
         logger.info(
             "regime_detector_fitted",
             n_samples=len(X_clean),
-            state_mapping={r.value: s for s, r in self._state_to_regime.items()},
+            state_mapping={s: r.value for s, r in self._state_to_regime.items()},
         )
 
     def _map_states_to_regimes(self) -> None:

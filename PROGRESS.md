@@ -197,6 +197,13 @@ Comprehensive scan across all layers; fixes committed in 5 batches:
 
 **Tests:** 72/72 passing · ruff/mypy clean · frontend build zero errors
 
+### Final Cleanup ✅ (2026-02-21)
+
+- [x] **C1** Complete `val_accuracy` rename: `frontend/src/lib/api.ts`, `frontend/src/app/settings/page.tsx`, `packages/models/lightgbm_model.py` — all three layers now agree (was `train_accuracy` in frontend, breaking the display)
+- [x] **C2** Remove dead `state_mapping` field from `RegimeConfig` (config.py) and `config/default.yaml` — actual runtime mapping computed dynamically by `RegimeDetector._map_states_to_regimes()`
+
+**Tests:** 72/72 passing · ruff/mypy clean
+
 ### Cloud Deployment ✅
 - [x] `railway.json` — Railway service config: DOCKERFILE builder, uvicorn start, `/api/health` healthcheck
 - [x] `Dockerfile` — `ENV PYTHONPATH=/app` added so `packages/` and `apps/` resolve in Railway containers

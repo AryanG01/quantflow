@@ -67,9 +67,9 @@ class RiskChecker:
         if trade_value_usd < self._min_trade_usd:
             return False, f"Trade value ${trade_value_usd:.2f} below minimum ${self._min_trade_usd}"
 
-        # Concentration check
+        # Concentration check — include existing positions in exposure calculation
         if portfolio.equity > 0:
-            concentration = trade_value_usd / portfolio.equity
+            concentration = (portfolio.positions_value + trade_value_usd) / portfolio.equity
             if concentration > self._max_concentration_pct:
                 return False, (
                     f"Concentration {concentration:.1%} exceeds "
