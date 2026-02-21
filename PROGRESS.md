@@ -130,6 +130,73 @@ All 30+ hardcoded values across the codebase moved to `AppConfig` + `config/defa
 **New migration:** `migrations/002_orders_signal_linkage.sql`
 **Tests:** 72/72 passing after all changes
 
+### T4 Addons ✅ (2026-02-21)
+- [x] **T4-A** Exchange API key UI in Settings (`POST /api/config/exchange/test` — validates live connection)
+- [x] **T4-B** Portfolio analytics endpoint (`GET /api/portfolio/analytics`) + Performance card on Dashboard (Sharpe, max drawdown, win rate, avg trade)
+- [x] **T4-C** Model retrain trigger (`POST /api/model/retrain`, `GET /api/model/status`) + retrain button in Settings with status polling
+- [x] **T4-D** Grafana dashboard (7 panels: equity, drawdown gauge, signals, regime, orders/hr, kill switch, risk rejections); provisioned via `monitoring/grafana/` volume mounts
+- [x] **T4-E** Telegram alerts (`AlertSeverity` enum, `send_telegram()`, HIGH/CRITICAL alert routing in `AlertManager`)
+
+**API now has 21 endpoints** (added `portfolio/analytics`, `model/status`, `model/retrain`, `config/exchange/test`, `config/universe`)
+**Frontend: 4 pages, all dynamic** (symbols from API, config from API)
+
+### Full Code Review — 50+ Bug Fixes ✅ (2026-02-21)
+
+Comprehensive scan across all layers; fixes committed in 5 batches:
+
+**Batch 1 — Critical Safety (5 fixes):**
+- [x] **B1-1** Double fee deduction on sell orders (fees were subtracted twice in portfolio snapshot)
+- [x] **B1-2** `KillSwitchError` not caught in `POST /api/orders` → returned HTTP 500 instead of 400
+- [x] **B1-3** Dual kill-switch state: alert rule now reads `_risk_checker.kill_switch_active` (not `drawdown_monitor`)
+- [x] **B1-4** Orders `INSERT` had no `ON CONFLICT` → `UniqueViolation` on worker restart; changed to `on_conflict_do_nothing()`
+- [x] **B1-5** `_retrain_lock` was a `bool` (not thread/async safe); replaced with `asyncio.Lock()`
+
+**Batch 2 — High Backend (9 fixes):**
+- [x] **B2-1** `_seen_hashes` set in `SentimentScorer` never pruned → unbounded memory leak
+- [x] **B2-2** DB reconnection storm on outage; added 30 s cooldown before retrying `_get_db()`
+- [x] **B2-3** `datetime.now(UTC) - tz_naive_timestamp` raised `TypeError`; now coerces to UTC
+- [x] **B2-4** Pandas boolean mask used on numpy arrays without `.to_numpy()` → silent index mismatch
+- [x] **B2-5** `random.seed(42)` polluted global random state; replaced with `random.Random(42)` instance
+- [x] **B2-6** Demo OHLCV candles could have `open > high` or `open < low`; fixed constraints
+- [x] **B2-7** `/api/regime` history returned one row per symbol (latest only) instead of time series
+- [x] **B2-8** `setup_logging()` was never called in the API process; added to `lifespan()`
+- [x] **B2-9** `DrawdownMonitor._peak_equity` reset to 0 on worker restart; now seeded from `MAX(equity)` in DB
+
+**Batch 3 — Backtest Correctness (8 fixes):**
+- [x] **B3-1** Turnover formula used `np.diff(returns)` (return volatility) instead of `np.diff(positions)`
+- [x] **B3-2** Event-driven engine mark-to-market used `closes[0]` (first bar) instead of actual entry price
+- [x] **B3-3** Event-driven engine recorded only cost (no round-trip P&L) → hit rate always 0%
+- [x] **B3-4** Triple-barrier tail bars got time-barrier labels from incomplete future windows (lookahead bias)
+- [x] **B3-5** `CostModel.maker_fee_bps` was defined but never used; added `is_maker: bool = False` param
+- [x] **B3-6** `align_to_bar` epoch was `2000-01-01` (Saturday); corrected to `1970-01-01` (Unix epoch, matches Binance)
+- [x] **B3-7** Backfill stopped early on partial Binance batch mid-range; changed to break only on empty response
+- [x] **B3-8** PSI drift detector: duplicate percentile edges from sparse features inflated PSI; added `np.unique(edges)`
+
+**Batch 4 — Frontend (9 fixes):**
+- [x] **B4-1** `React.ReactNode` used without `React` import in settings/page.tsx
+- [x] **B4-2** LIVE badge shown on wrong rows after Sharpe-ratio sort (index-based check was incorrect)
+- [x] **B4-3** `max_drawdown` displayed as "NaN%" when null; added null guard + `number | null` type
+- [x] **B4-4** `RiskPanel` drawdown bar hardcoded 15% kill-switch threshold; now reads from config
+- [x] **B4-5** `orderSymbol`/`symbol` not synced when universe loads; default now set from first API symbol
+- [x] **B4-6** Three pages had diverging hardcoded fallback symbol lists; unified via `FALLBACK_SYMBOLS` export
+- [x] **B4-7** React key collisions in `PositionsTable` and `SignalPanel`; changed to composite keys
+- [x] **B4-8** `SharedHeader` used `health!` non-null assertion; changed to `health?.candle_count`
+- [x] **B4-9** `layout.tsx` loaded fonts via Google CDN `<link>`; replaced with `next/font/google`
+
+**Batch 5 — Infrastructure & Naming (10 fixes):**
+- [x] **B5-1** `docker-compose.yml` was missing `api` and `worker` service definitions
+- [x] **B5-2** `Dockerfile` `COPY models/ models/` failed if directory didn't exist; added `mkdir -p` guard
+- [x] **B5-3** Grafana admin password hardcoded to `admin`; now reads `${GRAFANA_ADMIN_PASSWORD:-admin}`
+- [x] **B5-4** CI used `npm ci || npm install` fallback which breaks reproducibility; now `npm ci` only
+- [x] **B5-5** `ModelRetainResponse` typo (14 occurrences) → renamed to `ModelRetrainResponse`
+- [x] **B5-6** `_last_retrain_result` dict missing `"status": "ok"` key on success
+- [x] **B5-7** `sentiment_events.title` was nullable in composite PK; added migration 003 (`SET NOT NULL`)
+- [x] **B5-8** Grafana datasource variable had empty `"current"` → may not auto-select Prometheus on first load
+- [x] **B5-9** `RegimeDetector` accepted any `n_states` but `_map_states_to_regimes` was hardcoded for 3; added guard
+- [x] **B5-10** `FillSimulator` in `packages/backtest/simulator.py` was dead code (never imported); removed
+
+**Tests:** 72/72 passing · ruff/mypy clean · frontend build zero errors
+
 ### Cloud Deployment ✅
 - [x] `railway.json` — Railway service config: DOCKERFILE builder, uvicorn start, `/api/health` healthcheck
 - [x] `Dockerfile` — `ENV PYTHONPATH=/app` added so `packages/` and `apps/` resolve in Railway containers
@@ -154,11 +221,12 @@ All 30+ hardcoded values across the codebase moved to `AppConfig` + `config/defa
 - **Backtest** (`/backtest`) — Run backtests with symbol/strategy/lookback/capital selection, progress bar, strategy comparison with LIVE badges, methodology note
 - **Settings** (`/settings`) — Editable universe/risk/execution with sliders and toggles, read-only advanced sections (features/model/regime), save/reset to YAML
 
-**Backend API at http://localhost:8000** with 16 endpoints:
+**Backend API at http://localhost:8000** with 21 endpoints:
 - GET: `/api/health`, `/api/signals`, `/api/signals/{symbol}`, `/api/portfolio`, `/api/positions`
 - GET: `/api/risk`, `/api/regime`, `/api/equity-history`, `/api/backtest-results`
 - GET: `/api/trades`, `/api/config`, `/api/candles/{symbol}`, `/api/prices`, `/api/backtest/history`
-- POST: `/api/orders`, `/api/backtest/run`
+- GET: `/api/portfolio/analytics`, `/api/model/status`, `/api/config/universe`
+- POST: `/api/orders`, `/api/backtest/run`, `/api/model/retrain`, `/api/config/exchange/test`
 - PATCH: `/api/config`
 
 **Data flow**: API queries DB first → if empty, serves demo data (seed 42) → frontend polls every 5-15s
@@ -206,14 +274,11 @@ The running uvicorn process uses stale code. Code is correct (21 routes verified
 PYTHONPATH=. uv run uvicorn apps.api.main:app --reload --port 8000
 ```
 
-### 2. Live exchange connection
-No UI for API key entry. No paper → live mode switch from the frontend (the Settings page has a paper/live toggle, but switching to "live" without exchange credentials does nothing).
-
-### 4. Live exchange connection
-No UI for API key entry. No paper → live mode switch from the frontend (the Settings page has a paper/live toggle, but switching to "live" without exchange credentials does nothing).
+### 2. Live trading (real capital)
+Settings page now has exchange API key fields + connection test (`POST /api/config/exchange/test`). The backend routes exist but live order execution requires valid exchange credentials and switching `paper_mode: false` in config.
 
 ### 5. Monitoring dashboards
-Prometheus metrics are exported from the worker, but Grafana dashboards are not configured. `docker-compose.yml` includes Grafana but no provisioned dashboards.
+Grafana dashboard provisioned via `monitoring/grafana/` volume mounts in `docker-compose.yml` (7 panels). Prometheus metrics exported from worker. Run `docker compose up` to activate.
 
 ### 6. Cloud deployment
 No Vercel/Railway deployment yet.
