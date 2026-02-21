@@ -70,6 +70,47 @@ class Worker:
             )
         )
 
+    async def _startup_backfill(self) -> None:
+        """Backfill historical candles on startup so model can train immediately.
+
+        Uses config.universe.lookback_days to determine how far back to fetch.
+        Rate-limit errors are caught and logged — they do not prevent startup.
+        """
+        try:
+            from packages.common.config import ExchangeConfig
+            from packages.data_ingestion.backfill import backfill_candles
+            from packages.data_ingestion.binance_adapter import BinanceAdapter
+
+            exchange_cfg = self._config.exchanges.get("binance", ExchangeConfig())
+            adapter = BinanceAdapter(config=exchange_cfg)
+            start = datetime.now(UTC) - timedelta(days=self._config.universe.lookback_days)
+
+            logger.info(
+                "startup_backfill_started",
+                lookback_days=self._config.universe.lookback_days,
+            )
+            for symbol in self._config.universe.symbols:
+                try:
+                    inserted = await backfill_candles(
+                        provider=adapter,
+                        engine=self._engine,
+                        symbol=symbol,
+                        timeframe=self._config.universe.timeframe,
+                        start=start,
+                    )
+                    logger.info("startup_backfill_symbol_done", symbol=symbol, inserted=inserted)
+                except Exception as sym_err:
+                    err = str(sym_err)
+                    if "418" in err or "banned" in err.lower():
+                        logger.warning(
+                            "startup_backfill_rate_limited", symbol=symbol, error=err[:120]
+                        )
+                    else:
+                        logger.warning("startup_backfill_symbol_failed", symbol=symbol, error=err)
+            logger.info("startup_backfill_completed")
+        except Exception as e:
+            logger.warning("startup_backfill_failed", error=str(e))
+
     async def signal_pipeline_task(self) -> None:
         """Main signal generation pipeline — runs every signal_interval_hours."""
         logger.info("signal_pipeline_started", time=datetime.now(UTC).isoformat())
@@ -140,6 +181,9 @@ class Worker:
     async def run(self) -> None:
         """Main worker loop with config-driven scheduled tasks."""
         logger.info("worker_started", mode=self._config.execution.mode)
+
+        # Backfill historical candles once on startup so the model can train
+        await self._startup_backfill()
 
         wcfg = self._config.worker
         signal_interval = wcfg.signal_interval_hours * 3600

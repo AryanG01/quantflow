@@ -27,7 +27,7 @@ function MetricSkeleton() {
 }
 
 export default function Dashboard() {
-  const { data: health } = usePolling(useCallback(() => api.health(), []), 10000);
+  const { data: health } = usePolling(useCallback(() => api.health(), []), 5000);
   const { data: portfolio } = usePolling(useCallback(() => api.portfolio(), []), 5000);
   const { data: signals } = usePolling(useCallback(() => api.signals(), []), 5000);
   const { data: positions } = usePolling(useCallback(() => api.positions(), []), 5000);

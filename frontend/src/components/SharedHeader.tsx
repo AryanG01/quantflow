@@ -6,7 +6,7 @@ import { usePolling } from "@/hooks/usePolling";
 import { NavBar } from "@/components/NavBar";
 
 export function SharedHeader() {
-  const { data: health } = usePolling(useCallback(() => api.health(), []), 10000);
+  const { data: health } = usePolling(useCallback(() => api.health(), []), 5000);
   const isConnected = health?.status === "ok";
   const isDbLive = health?.db_connected ?? false;
 

@@ -144,14 +144,23 @@ class SignalPipeline:
         self._model_trained = False
         self._model_registry = ModelRegistry(base_dir="models")
 
-        # Attempt to load a previously saved model at startup
+        # Attempt to load a previously saved model at startup (disk first, then DB)
         try:
             saved_model, _metadata = self._model_registry.load("lightgbm_latest")
             self._model = saved_model  # type: ignore[assignment]
             self._model_trained = True
             logger.info("model_loaded_from_registry", model_id="lightgbm_latest")
         except (FileNotFoundError, OSError):
-            logger.info("no_saved_model_found, will train from scratch")
+            logger.info("no_disk_model_found, trying db")
+            try:
+                saved_model, _metadata = self._model_registry.load_from_db(
+                    engine, "lightgbm_latest"
+                )
+                self._model = saved_model  # type: ignore[assignment]
+                self._model_trained = True
+                logger.info("model_loaded_from_db")
+            except Exception:
+                logger.info("no_db_model, will train from scratch")
 
         # Regime detection
         self._regime_detector = RegimeDetector(n_states=config.regime.n_states)
@@ -470,19 +479,31 @@ class SignalPipeline:
                 self._model_trained = True
                 logger.info("model_trained", n_samples=int(valid_labels.sum()))
 
-                # Persist trained model to disk
+                # Persist trained model to disk and DB
+                feature_names = list(clean_features.columns)
+                train_metrics: dict[str, float] = {"n_samples": float(valid_labels.sum())}
                 try:
-                    feature_names = list(clean_features.columns)
                     self._model_registry.save(
                         model=self._model,
                         model_id="lightgbm_latest",
                         model_type="lightgbm_quantile",
-                        train_metrics={"n_samples": int(valid_labels.sum())},
+                        train_metrics=train_metrics,
                         feature_names=feature_names,
                     )
                     logger.info("model_saved_to_registry", model_id="lightgbm_latest")
                 except Exception as e:
-                    logger.warning("model_save_failed", error=str(e))
+                    logger.warning("model_disk_save_failed", error=str(e))
+                try:
+                    self._model_registry.save_to_db(
+                        engine=self._engine,
+                        model=self._model,
+                        model_id="lightgbm_latest",
+                        model_type="lightgbm_quantile",
+                        train_metrics=train_metrics,
+                        feature_names=feature_names,
+                    )
+                except Exception as e:
+                    logger.warning("model_db_save_failed", error=str(e))
 
     # ── Pipeline execution ────────────────────────────────────
 
@@ -520,7 +541,7 @@ class SignalPipeline:
                 )
                 ml_score = (pred.label - 1) / 1.0  # map 0,1,2 → -1,0,1
             else:
-                confidence = 0.3
+                confidence = 0.5
                 ml_score = 0.0
 
             # 5. Detect regime (drop NaN jointly so both arrays stay same length)
@@ -529,9 +550,14 @@ class SignalPipeline:
             real_vol = regime_df["realized_vol"].values
             regime = self._regime_detector.predict_current(log_ret, real_vol)
 
-            # 6. Technical signal (simple: RSI-based)
+            # 6. Technical signal (composite: RSI + BB%B + VWAP deviation)
             rsi = features["rsi"].iloc[-1]
-            tech_score = (50 - rsi) / 50 if pd.notna(rsi) else 0.0
+            bb_pct_b = features["bb_pct_b"].iloc[-1]
+            vwap_dev = features["vwap_deviation"].iloc[-1]
+            rsi_score = float(np.clip((50 - rsi) / 50, -1, 1)) if pd.notna(rsi) else 0.0
+            bb_score = float(np.clip((0.5 - bb_pct_b) * 2, -1, 1)) if pd.notna(bb_pct_b) else 0.0
+            vwap_score = float(np.clip(-vwap_dev * 20, -1, 1)) if pd.notna(vwap_dev) else 0.0
+            tech_score = 0.4 * rsi_score + 0.3 * bb_score + 0.3 * vwap_score
 
             # 7. Fuse signals (with live sentiment)
             sentiment_score = self._sentiment_scorer.compute_score(symbol)

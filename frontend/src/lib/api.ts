@@ -141,42 +141,59 @@ export interface ExchangeTestResult {
 }
 
 async function fetchJson<T>(path: string): Promise<T | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
   try {
-    const res = await fetch(`${API_BASE}${path}`, { cache: "no-store" });
+    const res = await fetch(`${API_BASE}${path}`, {
+      cache: "no-store",
+      signal: controller.signal,
+    });
     if (!res.ok) return null;
     return await res.json();
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
 async function postJson<T>(path: string, body: unknown): Promise<T | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
   try {
     const res = await fetch(`${API_BASE}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
       cache: "no-store",
+      signal: controller.signal,
     });
     if (!res.ok) return null;
     return await res.json();
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
 async function patchJson<T>(path: string, body: unknown): Promise<T | null> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
   try {
     const res = await fetch(`${API_BASE}${path}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
       cache: "no-store",
+      signal: controller.signal,
     });
     if (!res.ok) return null;
     return await res.json();
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 

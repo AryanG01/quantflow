@@ -62,6 +62,20 @@ class TechnicalFeatures(FeatureComputer):
             self._bars_per_year
         )
 
+        # Momentum features (shifted 1 bar to prevent lookahead)
+        features["momentum_4"] = (close / close.shift(4) - 1).shift(1)
+        features["momentum_12"] = (close / close.shift(12) - 1).shift(1)
+
+        # EMA ratio: short-term vs long-term trend strength (shifted 1 bar)
+        ema_fast = close.ewm(span=10, adjust=False).mean()
+        ema_slow = close.ewm(span=30, adjust=False).mean()
+        features["ema_ratio"] = (ema_fast / ema_slow.replace(0, np.nan) - 1).shift(1)
+
+        # Volume anomaly: current volume vs rolling mean (shifted 1 bar)
+        features["volume_ratio"] = (
+            volume / volume.rolling(24).mean().replace(0, np.nan) - 1
+        ).shift(1)
+
         return features
 
     def feature_names(self) -> list[str]:
@@ -72,6 +86,10 @@ class TechnicalFeatures(FeatureComputer):
             "bb_pct_b",
             "vwap_deviation",
             "realized_vol",
+            "momentum_4",
+            "momentum_12",
+            "ema_ratio",
+            "volume_ratio",
         ]
 
     @staticmethod

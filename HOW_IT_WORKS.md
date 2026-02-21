@@ -16,10 +16,12 @@
 10. [Risk Management](#10-risk-management)
 11. [Backtesting](#11-backtesting)
 12. [Execution](#12-execution)
-13. [The Dashboard](#13-the-dashboard)
-14. [Data Sources & Demo Mode](#14-data-sources--demo-mode)
-15. [Running the System](#15-running-the-system)
-16. [Glossary](#16-glossary)
+13. [Model Persistence](#13-model-persistence)
+14. [Monitoring, Alerting & Observability](#14-monitoring-alerting--observability)
+15. [The Dashboard](#15-the-dashboard)
+16. [Data Sources & Demo Mode](#16-data-sources--demo-mode)
+17. [Running the System](#17-running-the-system)
+18. [Glossary](#18-glossary)
 
 ---
 
@@ -672,7 +674,114 @@ QuantFlow's event-driven backtest engine simulates partial fills with a configur
 
 ---
 
-## 13. The Dashboard
+## 13. Model Persistence
+
+### The Ephemeral Filesystem Problem
+
+Cloud platforms like Railway run containers that are rebuilt on every deploy. Any file written inside the container — including trained ML model `.pkl` files on disk — disappears when the container restarts. Without a persistence strategy, the worker would re-train from scratch on every deploy, spending the first pipeline tick (up to 4 hours) without a usable model.
+
+### The `model_artifacts` Table
+
+QuantFlow solves this by storing serialized models directly in TimescaleDB. Migration 004 (`migrations/004_model_artifacts.sql`) creates:
+
+```sql
+CREATE TABLE IF NOT EXISTS model_artifacts (
+    model_id   TEXT PRIMARY KEY,
+    model_type TEXT NOT NULL,
+    artifact   BYTEA NOT NULL,   -- pickled model binary
+    metadata   JSONB NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+The `artifact` column holds the raw bytes from `pickle.dumps(model)`. Because TimescaleDB is backed by managed storage (Timescale Cloud), the data survives container restarts indefinitely.
+
+### How It Works
+
+`ModelRegistry` (in `packages/models/model_registry.py`) has two storage paths:
+
+**Local disk (development)**
+- `save(model, ...)` → writes `models/{model_id}/model.pkl` and `metadata.json`
+- `load(model_id)` → reads from the same path
+- Fast, but lost on Railway restart
+
+**Database (production)**
+- `save_to_db(engine, model, ...)` → pickles the model and upserts into `model_artifacts` using `ON CONFLICT (model_id) DO UPDATE`. This means re-training always overwrites the previous version cleanly.
+- `load_from_db(engine, model_id)` → fetches the BYTEA, calls `pickle.loads()`, deserializes the metadata JSON
+
+**On worker startup**, the signal pipeline calls `load_from_db()` first. If a saved model exists, training is skipped for that cycle and the pre-trained model is used immediately. This means a Railway redeploy costs zero retraining time.
+
+### Model Retrain API
+
+The API exposes two endpoints to manage the model lifecycle:
+
+- `POST /api/model/retrain` — triggers a background retrain job (protected by `asyncio.Lock` so only one job runs at a time). Returns the retrain status immediately.
+- `GET /api/model/status` — returns the current state: `not_trained`, `training`, or `ok` with the last retrain timestamp and metrics.
+
+---
+
+## 14. Monitoring, Alerting & Observability
+
+QuantFlow has three observability layers: Prometheus metrics, Grafana dashboards, and Telegram alerts.
+
+### Prometheus Metrics
+
+`packages/monitoring/metrics_exporter.py` exports runtime gauges from the worker process to a Prometheus-compatible HTTP endpoint (default port 9090). Key metrics include:
+
+- `quantflow_equity` — current portfolio equity in USD
+- `quantflow_drawdown_pct` — current drawdown from peak (0.0–1.0)
+- `quantflow_kill_switch_active` — 1 when kill switch is triggered, 0 otherwise
+- `quantflow_signal_strength` — latest fused signal strength per symbol
+- `quantflow_regime` — current HMM regime as a label
+- `quantflow_orders_total` — cumulative order count by side and status
+- `quantflow_risk_rejections_total` — count of orders blocked by risk checks
+
+These are collected by the Prometheus server running as a Docker service and stored in its time-series database.
+
+### Grafana Dashboard
+
+`monitoring/grafana/dashboards/quantflow.json` defines a 7-panel dashboard provisioned automatically when Docker Compose starts. Panels:
+
+| Panel | Type | What it shows |
+|-------|------|---------------|
+| Equity Over Time | Time series | Portfolio value (USD) |
+| Drawdown Gauge | Gauge | Current drawdown vs. kill switch threshold |
+| Active Signals | Stat | Current signal direction/strength per symbol |
+| Regime | Stat | Current HMM regime |
+| Orders/Hour | Time series | Order throughput rate |
+| Kill Switch | Stat | Active/Inactive with color coding |
+| Risk Rejections | Time series | Rate of pre-trade blocks |
+
+The Grafana admin password reads from `${GRAFANA_ADMIN_PASSWORD:-admin}` (override via Docker `.env`). Prometheus is automatically configured as the data source via provisioning in `monitoring/grafana/datasources/`.
+
+### Telegram Alerts
+
+`packages/monitoring/alerting.py` provides `AlertManager` — a rule engine that fires human-readable notifications to a Telegram chat when trading conditions warrant attention.
+
+**AlertSeverity** controls how often each alert can fire (cooldown):
+
+| Severity | Cooldown | When to use |
+|----------|----------|-------------|
+| `CRITICAL` | None (fires every check) | Kill switch active |
+| `HIGH` | 15 minutes | Drawdown approaching threshold (>10%) |
+| `MEDIUM` | 60 minutes | Model drift detected |
+| `LOW` | 120 minutes | Candle ingestion stalled |
+
+**Routing:** Only `HIGH` and `CRITICAL` alerts are forwarded to Telegram. `LOW` and `MEDIUM` are logged only. This prevents alert fatigue for non-urgent conditions.
+
+**Delivery:** `send_telegram()` uses Python's stdlib `urllib` (no `requests` dependency). It sends HTML-formatted messages to the configured `chat_id` via the Bot API. On any network error, it logs a warning and returns `False` — it never raises, so a Telegram outage cannot crash the worker.
+
+**Configuration** (via environment variables):
+```
+TELEGRAM_BOT_TOKEN=<your bot token from @BotFather>
+TELEGRAM_CHAT_ID=<your chat ID>
+```
+
+The worker's `health_check_task` calls `alert_manager.evaluate_all()` every 60 seconds.
+
+---
+
+## 15. The Dashboard
 
 QuantFlow includes a 4-page web dashboard built with Next.js 15, React 19, and Tailwind CSS 4. It uses a terminal-inspired dark theme with an industrial aesthetic -- JetBrains Mono for numbers, Inter for labels, cyan/green/red accent colors on a near-black background. The layout is shared across all pages: a `SharedHeader` component provides the QUANT::FLOW branding, navigation bar, version number, candle count, and a LIVE/DEMO/OFFLINE status indicator. The frontend polls the FastAPI backend every 5-15 seconds for fresh data.
 
@@ -691,6 +800,15 @@ A Recharts-powered area chart showing the portfolio's equity over time. The char
 
 **Positions Table**
 A table listing all current positions: which assets are held, the side (long/short), quantity, entry price, current price, unrealized profit/loss, and PnL percentage. This answers "what are we currently exposed to?"
+
+**Performance Card**
+Below the positions table sits a 4-column analytics card populated from `GET /api/portfolio/analytics` (polled every 30 seconds). It shows:
+- **Daily return** — portfolio return since midnight UTC, green if positive, red if negative
+- **Weekly return** — portfolio return over the last 7 days
+- **Sharpe (30d)** — rolling 30-day Sharpe ratio computed from equity snapshots in the `portfolio_snapshots` table
+- **Max DD** — maximum drawdown observed across the entire history
+
+All four values show `—` while insufficient history exists (less than 2 equity snapshots). The card only renders when the `analytics` endpoint returns a non-null result.
 
 **Risk Panel**
 Displays current risk metrics including: current drawdown with a visual progress bar showing proximity to the kill switch threshold, max drawdown, portfolio volatility, Sharpe ratio, concentration percentage, and kill switch status (active/inactive).
@@ -762,6 +880,17 @@ Three sections can be modified and saved:
 
 All editable settings persist to `config/default.yaml` via `PATCH /api/config`. The Save button writes the YAML file on the backend. The Reset button reverts to the last saved values.
 
+**Exchange API Keys Section**
+A new section lets you enter Binance API key and secret, then click "Test Connection." This calls `POST /api/config/exchange/test`, which attempts a lightweight authenticated request (e.g., fetch account balance) and returns `{"status": "ok", "message": "..."}` or an error. The keys are **not persisted** to disk — they are session-scoped React state only. This protects against accidental credential storage in `config/default.yaml`. To use live trading, set `BINANCE_API_KEY` and `BINANCE_API_SECRET` as environment variables.
+
+**Model Retraining Section**
+Shows the current model status fetched from `GET /api/model/status` on page load:
+- **Not trained** — no model has been trained yet (first startup)
+- **Training** — a retrain job is currently running in the background
+- **OK** — model is ready, shows the timestamp of the last retrain
+
+The "Retrain Model" button calls `POST /api/model/retrain`. The response updates the status display immediately. A retrain job runs the full walk-forward training pipeline on the available candle data in the DB, saves the result to `model_artifacts` via `save_to_db()`, and marks status as `ok`. The `asyncio.Lock` in the API prevents two concurrent retrain jobs from running simultaneously.
+
 **Read-Only Sections**
 
 Three sections are displayed but not editable (they require code changes to modify safely):
@@ -774,7 +903,7 @@ Each read-only section renders values with type-colored formatting: numbers in c
 
 ---
 
-## 14. Data Sources & Demo Mode
+## 16. Data Sources & Demo Mode
 
 ### The Three-Tier Data Strategy
 
@@ -838,7 +967,7 @@ The important point: the backtest **math is real** (the vectorized engine runs w
 
 ---
 
-## 15. Running the System
+## 17. Running the System
 
 ### Quick Start (Demo Mode -- No Database Required)
 
@@ -865,10 +994,13 @@ The frontend runs on port 4000 and proxies all `/api/*` requests to the backend 
 # 1. Start the database (requires Docker Desktop)
 docker compose -f docker-compose.dev.yml up -d
 
-# 2. Backfill real candles from Binance (one-time, data persists in Docker volume)
+# 2. Run migrations to create all 11 tables
+uv run python scripts/migrate.py
+
+# 3. Backfill real candles from Binance (one-time, data persists in Docker volume)
 PYTHONPATH=. uv run python scripts/backfill_candles.py --no-sandbox
 
-# 3. Start backend and frontend as above
+# 4. Start backend and frontend as above
 PYTHONPATH=. uv run uvicorn apps.api.main:app --reload --port 8000
 cd frontend && npm run dev
 ```
@@ -881,6 +1013,35 @@ With the database connected, you will see:
 
 Note: Even with the database, most dashboard data (signals, positions, portfolio, risk, regime) will still show demo values until the worker process is wired to write computed results back to the database. The candles and prices are real; the derived analytics are not yet.
 
+### With Grafana + Prometheus (Full Observability Stack)
+
+```bash
+# Starts TimescaleDB, Redis, Prometheus, and Grafana
+docker compose up -d
+
+# Visit Grafana at http://localhost:3000 (admin / admin)
+# QuantFlow dashboard is auto-provisioned — no manual setup needed
+```
+
+Set `GRAFANA_ADMIN_PASSWORD` in your `.env` file to change the default password.
+
+### Against Timescale Cloud (Production Database)
+
+```bash
+# Set these env vars (or add to .env)
+export POSTGRES_HOST=your-host.tsdb.cloud.timescale.com
+export POSTGRES_PORT=30237
+export POSTGRES_DB=tsdb
+export POSTGRES_USER=tsdbadmin
+export POSTGRES_PASSWORD=<your-password>
+export POSTGRES_SSLMODE=require
+
+# Apply all 4 migrations (idempotent — safe to run multiple times)
+uv run python scripts/migrate.py
+```
+
+`scripts/migrate.py` reads the same `POSTGRES_*` env vars as the rest of the application via `load_config()`. It discovers all `migrations/*.sql` files in alphabetical order (001 → 004), splits each file into individual statements, and executes them with one connection commit per file. Failed files are reported but do not abort subsequent files. The script exits with code 1 if any migration fails.
+
 ### Running Tests
 
 ```bash
@@ -891,7 +1052,11 @@ Currently 72 tests passing. The Binance integration test is excluded from CI (ge
 
 ---
 
-## 16. Glossary
+## 18. Glossary
+
+**AlertManager** -- The rule engine in `packages/monitoring/alerting.py` that evaluates alert conditions on a schedule and dispatches notifications to Telegram for HIGH/CRITICAL severity events.
+
+**AlertSeverity** -- An enum that controls how often each alert can fire: CRITICAL (no cooldown), HIGH (15 min), MEDIUM (60 min), LOW (120 min).
 
 **Alpha** -- Returns generated above a benchmark (like "beating the market"). If the market returns 10% and your strategy returns 13%, your alpha is 3%.
 
@@ -927,6 +1092,8 @@ Currently 72 tests passing. The Binance integration test is excluded from CI (ge
 
 **Gradient Boosting** -- A machine learning technique that builds an ensemble of simple models (usually decision trees), each correcting the errors of the previous ones.
 
+**Grafana** -- An open-source observability platform. QuantFlow provisions a 7-panel dashboard automatically via `monitoring/grafana/` volume mounts in Docker Compose.
+
 **HMM (Hidden Markov Model)** -- A statistical model for systems that transition between unobservable states over time. Used for regime detection. See Section 7.
 
 **IQR (Interquartile Range)** -- The difference between the 75th and 25th percentiles of a distribution. Used as an uncertainty measure in QuantFlow.
@@ -944,6 +1111,8 @@ Currently 72 tests passing. The Binance integration test is excluded from CI (ge
 **Lookahead Bias** -- Accidentally using future information to make past decisions. The most common and dangerous error in backtesting. See Section 6.
 
 **Market Order** -- An order to buy or sell immediately at the best available price.
+
+**model_artifacts** -- A PostgreSQL table (created in migration 004) that stores pickled ML model binaries as BYTEA alongside JSONB metadata. Enables model survival across container restarts on Railway.
 
 **Mean-Reverting (Regime)** -- A market state where prices tend to return to a central level after moving away from it. See Section 7.
 
@@ -980,6 +1149,8 @@ Currently 72 tests passing. The Binance integration test is excluded from CI (ge
 **Spread (Bid-Ask)** -- The difference between the highest buy price and lowest sell price in the order book.
 
 **Staleness** -- When market data is older than a defined threshold and may no longer reflect current conditions.
+
+**Telegram Bot** -- A chat bot used to deliver HIGH and CRITICAL alerts to a designated Telegram chat. Configured via `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` environment variables.
 
 **TimescaleDB** -- A time-series database extension for PostgreSQL, used to store candle data and trade history.
 

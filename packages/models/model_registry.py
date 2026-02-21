@@ -8,6 +8,8 @@ from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+import sqlalchemy as sa
+
 from packages.common.logging import get_logger
 
 logger = get_logger(__name__)
@@ -88,3 +90,61 @@ class ModelRegistry:
                 meta_dict = json.load(f)
             models.append(ModelMetadata(**meta_dict))
         return models
+
+    def save_to_db(
+        self,
+        engine: sa.engine.Engine,
+        model: object,
+        model_id: str,
+        model_type: str,
+        train_metrics: dict[str, float],
+        feature_names: list[str],
+        config: dict[str, object] | None = None,
+    ) -> None:
+        """Pickle model and store as BYTEA in model_artifacts table (upsert)."""
+        artifact = pickle.dumps(model)
+        metadata = {
+            "model_id": model_id,
+            "model_type": model_type,
+            "created_at": datetime.now(UTC).isoformat(),
+            "train_metrics": train_metrics,
+            "feature_names": feature_names,
+            "config": config or {},
+        }
+        sql = sa.text(
+            """
+            INSERT INTO model_artifacts (model_id, model_type, artifact, metadata, created_at)
+            VALUES (:model_id, :model_type, :artifact, :metadata::jsonb, NOW())
+            ON CONFLICT (model_id) DO UPDATE
+                SET model_type = EXCLUDED.model_type,
+                    artifact   = EXCLUDED.artifact,
+                    metadata   = EXCLUDED.metadata,
+                    created_at = EXCLUDED.created_at
+            """
+        )
+        with engine.begin() as conn:
+            conn.execute(
+                sql,
+                {
+                    "model_id": model_id,
+                    "model_type": model_type,
+                    "artifact": artifact,
+                    "metadata": json.dumps(metadata, default=str),
+                },
+            )
+        logger.info("model_saved_to_db", model_id=model_id)
+
+    def load_from_db(self, engine: sa.engine.Engine, model_id: str) -> tuple[object, ModelMetadata]:
+        """Load pickled model from model_artifacts table."""
+        sql = sa.text("SELECT artifact, metadata FROM model_artifacts WHERE model_id = :model_id")
+        with engine.connect() as conn:
+            row = conn.execute(sql, {"model_id": model_id}).fetchone()
+        if row is None:
+            raise FileNotFoundError(f"No DB model found for model_id={model_id}")
+        artifact_bytes, meta_dict = row
+        model = pickle.loads(artifact_bytes)  # noqa: S301
+        if isinstance(meta_dict, str):
+            meta_dict = json.loads(meta_dict)
+        metadata = ModelMetadata(**meta_dict)
+        logger.info("model_loaded_from_db", model_id=model_id)
+        return model, metadata

@@ -71,8 +71,8 @@ signals:
         technical: 0.3
         ml: 0.3
         sentiment: 0.4
-    choppy_scale: 0.3
-    direction_threshold: 0.05
+    choppy_scale: 0.5
+    direction_threshold: 0.02
     confidence_min_iqr: 0.2
     confidence_max_iqr: 1.5
 risk:
@@ -82,7 +82,7 @@ risk:
   max_drawdown_pct: 0.15
   max_concentration_pct: 0.3
   min_trade_usd: 10.0
-  staleness_threshold_minutes: 30
+  staleness_threshold_minutes: 360
 execution:
   mode: paper
   order_timeout_seconds: 120
@@ -119,7 +119,7 @@ database:
 redis:
   url: ${REDIS_URL:redis://localhost:6379/0}
 worker:
-  signal_interval_hours: 4
+  signal_interval_hours: 1
   candle_interval_hours: 1
   sentiment_interval_minutes: 5
   health_interval_seconds: 60
@@ -129,7 +129,7 @@ worker:
 portfolio:
   initial_equity: 100000.0
   signal_lookback_bars: 1200
-  min_train_bars: 500
+  min_train_bars: 200
   min_valid_labels: 200
   vol_lookback_bars: 90
 api:
