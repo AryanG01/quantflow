@@ -1,0 +1,21 @@
+# Never bake trained model artifacts into the Docker image.
+# The worker trains at runtime and saves models to the DB (model_artifacts table).
+models/
+
+# Dev/test artifacts
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local config overrides
+.env
+.env.*
+
+# Frontend build (deployed separately via Vercel)
+frontend/
+
+# Vercel
+.vercel/

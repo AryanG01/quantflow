@@ -20,7 +20,7 @@ COPY apps/ apps/
 COPY scripts/ scripts/
 COPY config/ config/
 RUN mkdir -p /app/models
-COPY models/ models/
+# models/ is NOT copied — the worker trains at runtime and persists to DB.
 ENV PYTHONPATH=/app
 
 # APP_MODE=api  → uvicorn (default)
