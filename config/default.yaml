@@ -78,7 +78,7 @@ risk:
   max_drawdown_pct: 0.15
   max_concentration_pct: 0.3
   min_trade_usd: 10.0
-  staleness_threshold_minutes: 90
+  staleness_threshold_minutes: 360
 execution:
   mode: paper
   order_timeout_seconds: 120
