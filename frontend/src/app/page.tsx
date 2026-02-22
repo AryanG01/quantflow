@@ -27,15 +27,15 @@ function MetricSkeleton() {
 }
 
 export default function Dashboard() {
-  const { data: health } = usePolling(useCallback(() => api.health(), []), 5000);
-  const { data: portfolio } = usePolling(useCallback(() => api.portfolio(), []), 5000);
-  const { data: signals } = usePolling(useCallback(() => api.signals(), []), 5000);
-  const { data: positions } = usePolling(useCallback(() => api.positions(), []), 5000);
-  const { data: risk } = usePolling(useCallback(() => api.risk(), []), 5000);
-  const { data: regime } = usePolling(useCallback(() => api.regime(), []), 5000);
-  const { data: equityHistory } = usePolling(useCallback(() => api.equityHistory(), []), 15000);
-  const { data: analytics } = usePolling(useCallback(() => api.portfolioAnalytics(), []), 30000);
-  const { data: config } = usePolling(useCallback(() => api.config(), []), 60000);
+  // health is already polled by SharedHeader in the layout — no need to duplicate it here
+  const { data: portfolio } = usePolling(useCallback(() => api.portfolio(), []), 5000, "portfolio");
+  const { data: signals } = usePolling(useCallback(() => api.signals(), []), 5000, "signals");
+  const { data: positions } = usePolling(useCallback(() => api.positions(), []), 5000, "positions");
+  const { data: risk } = usePolling(useCallback(() => api.risk(), []), 5000, "risk");
+  const { data: regime } = usePolling(useCallback(() => api.regime(), []), 5000, "regime");
+  const { data: equityHistory } = usePolling(useCallback(() => api.equityHistory(), []), 15000, "equity-history");
+  const { data: analytics } = usePolling(useCallback(() => api.portfolioAnalytics(), []), 30000, "analytics");
+  const { data: config } = usePolling(useCallback(() => api.config(), []), 60000, "config");
 
   const loading = !portfolio;
 

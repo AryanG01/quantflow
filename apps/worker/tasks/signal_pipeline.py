@@ -206,9 +206,13 @@ class SignalPipeline:
             pass  # No snapshots yet; peak will be set on first update
 
         # Execution — apply half-spread slippage on paper fills
+        from packages.common.config import ExchangeConfig as _ExchangeConfig
+
+        _exchange_cfg = config.exchanges.get("binance", _ExchangeConfig())
         self._order_manager = OrderManager(
             paper_mode=(config.execution.mode == "paper"),
             slippage_bps=config.execution.slippage_model.fixed_spread_bps,
+            fee_rate=_exchange_cfg.fees_bps.taker / 10_000.0,
         )
 
         # Portfolio state backed by TimescaleDB
@@ -266,13 +270,6 @@ class SignalPipeline:
         vol = std * ann_factor
         sharpe = float(np.mean(log_returns)) / std * ann_factor
         return vol, sharpe
-
-    def _taker_fee_rate(self) -> float:
-        """Return taker fee as a fraction from config (e.g. 10 bps → 0.001)."""
-        from packages.common.config import ExchangeConfig
-
-        exchange_cfg = self._config.exchanges.get("binance", ExchangeConfig())
-        return exchange_cfg.fees_bps.taker / 10_000.0
 
     def _persist_signal(
         self, signal: object, components: dict[str, float], regime_value: str
@@ -614,12 +611,24 @@ class SignalPipeline:
                 signal, portfolio, current_price, realized_vol
             )
 
-            # B2: Delta sizing — only trade the difference vs existing position
+            # B2: Determine trade direction and quantity.
+            # Paper trading is long-only: SHORT signals close existing longs only.
+            # This prevents phantom cash from "proceeds" of short-selling assets
+            # the portfolio never held.
             existing_qty = self._get_existing_quantity(symbol)
-            quantity = max(0.0, quantity - existing_qty)
 
-            if quantity < 1e-8 or signal.direction == Direction.FLAT:
-                return  # Skip flat or negligible signals
+            if signal.direction == Direction.LONG:
+                side = Side.BUY
+                quantity = max(0.0, quantity - existing_qty)
+            elif signal.direction == Direction.SHORT and existing_qty > 0:
+                # Close the existing long position
+                side = Side.SELL
+                quantity = existing_qty
+            else:
+                return  # FLAT or SHORT with no position to close — nothing to do
+
+            if quantity < 1e-8:
+                return
 
             trade_value = quantity * current_price
             approved, reason = self._risk_checker.check_pre_trade(
@@ -635,7 +644,6 @@ class SignalPipeline:
                 return
 
             # 10. Execute
-            side = Side.BUY if signal.direction == Direction.LONG else Side.SELL
             order = await self._order_manager.submit(
                 symbol=symbol,
                 side=side,
@@ -655,36 +663,24 @@ class SignalPipeline:
                 status=order.status.value,
             )
 
-            # 10b. Compute realized PnL and update portfolio state after fill
+            # 10b. Portfolio accounting after fill
             trade_realized_pnl = 0.0
             if order.status == OrderStatus.FILLED:
                 fill_price = order.avg_fill_price or current_price
-                fill_cost = fill_price * order.filled_qty
-                fees = fill_cost * self._taker_fee_rate()
+                fill_cost = fill_price * order.filled_qty  # proceeds / outlay at fill price
+                fees = order.fees  # already computed by OrderManager._simulate_fill
 
-                if side == Side.SELL:
-                    entry_price = self._get_position_entry_price(symbol)
-                    if entry_price and entry_price > 0:
-                        trade_realized_pnl = (fill_price - entry_price) * order.filled_qty - fees
-
-            # 10c. Persist order with signal metadata
-            self._persist_order(
-                order,
-                current_price,
-                signal_strength=signal.strength,
-                signal_regime=regime.value,
-                realized_pnl=trade_realized_pnl,
-            )
-
-            # 10d. Update portfolio state after fill
-            if order.status == OrderStatus.FILLED:
                 prev = portfolio
                 if side == Side.BUY:
                     new_cash = prev.cash - fill_cost - fees
                     new_positions_value = prev.positions_value + fill_cost
                 else:
+                    # Closing a long: cash += sell proceeds, positions_value -= entry cost
+                    entry_price = self._get_position_entry_price(symbol)
+                    entry_cost = (entry_price or fill_price) * order.filled_qty
+                    trade_realized_pnl = fill_cost - entry_cost - fees
                     new_cash = prev.cash + fill_cost - fees
-                    new_positions_value = max(0.0, prev.positions_value - fill_cost)
+                    new_positions_value = max(0.0, prev.positions_value - entry_cost)
 
                 new_equity = new_cash + new_positions_value
                 dd = self._drawdown_monitor.update(new_equity)
@@ -700,13 +696,23 @@ class SignalPipeline:
                 )
                 self._portfolio_store.save_snapshot(new_snapshot)
 
-                # 10e. Upsert position
-                pos_side = signal.direction.value
+            # 10c. Persist order with signal metadata
+            self._persist_order(
+                order,
+                current_price,
+                signal_strength=signal.strength,
+                signal_regime=regime.value,
+                realized_pnl=trade_realized_pnl,
+            )
+
+            # 10d. Upsert position
+            if order.status == OrderStatus.FILLED:
+                fill_price = order.avg_fill_price or current_price
                 self._persist_position(
                     symbol=symbol,
                     exchange=order.exchange,
-                    side=pos_side,
-                    quantity=order.filled_qty,
+                    side=signal.direction.value,
+                    quantity=order.filled_qty if side == Side.BUY else 0.0,
                     avg_entry_price=fill_price,
                     unrealized_pnl=0.0,
                     realized_pnl=trade_realized_pnl,

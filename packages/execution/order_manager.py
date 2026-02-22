@@ -26,12 +26,14 @@ class OrderManager:
         max_retries: int = 3,
         timeout_seconds: int = 120,
         slippage_bps: float = 5.0,
+        fee_rate: float = 0.001,
     ) -> None:
         self._executor = executor
         self._paper_mode = paper_mode
         self._max_retries = max_retries
         self._timeout_seconds = timeout_seconds
         self._slippage_bps = slippage_bps
+        self._fee_rate = fee_rate
         self._open_orders: dict[str, Order] = {}
 
     async def submit(
@@ -92,11 +94,13 @@ class OrderManager:
             else:
                 fill_price *= 1.0 - slip
 
+        fees = fill_price * order.quantity * self._fee_rate if fill_price > 0 else 0.0
         filled = order.model_copy(
             update={
                 "status": OrderStatus.FILLED,
                 "filled_qty": order.quantity,
                 "avg_fill_price": fill_price,
+                "fees": fees,
             }
         )
 

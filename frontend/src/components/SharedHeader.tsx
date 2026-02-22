@@ -6,8 +6,9 @@ import { usePolling } from "@/hooks/usePolling";
 import { NavBar } from "@/components/NavBar";
 
 export function SharedHeader() {
-  const { data: health } = usePolling(useCallback(() => api.health(), []), 5000);
-  const isConnected = health?.status === "ok";
+  const { data: health, loading: healthLoading } = usePolling(useCallback(() => api.health(), []), 5000, "health");
+  // During initial load (healthLoading=true, no cached data) don't flash OFFLINE.
+  const isConnected = healthLoading ? true : health?.status === "ok";
   const isDbLive = health?.db_connected ?? false;
 
   return (
