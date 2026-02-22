@@ -32,7 +32,6 @@ from packages.risk.drawdown_monitor import DrawdownMonitor
 from packages.risk.portfolio_state import DBPortfolioStateStore
 from packages.risk.position_sizer import VolTargetPositionSizer
 from packages.risk.risk_checks import RiskChecker
-from packages.signals.confidence import uncertainty_to_confidence
 from packages.signals.regime_detector import RegimeDetector
 from packages.signals.sentiment_scorer import SentimentScorer
 from packages.signals.signal_fusion import RegimeGatedMoE
@@ -553,13 +552,12 @@ class SignalPipeline:
             if self._model_trained:
                 predictions = self._model.predict(last_valid)
                 pred = predictions[0]
-                iqr = pred.quantiles.get("q75", 1.0) - pred.quantiles.get("q25", 0.0)
-                fusion_cfg = self._config.signals.fusion
-                confidence = uncertainty_to_confidence(
-                    iqr,
-                    min_iqr=fusion_cfg.confidence_min_iqr,
-                    max_iqr=fusion_cfg.confidence_max_iqr,
-                )
+                # Use classifier max-class probability as confidence [0.33, 1.0].
+                # IQR on integer labels {0,1,2} degenerates to q25=0, q75=2 → IQR=2
+                # which causes uncertainty_to_confidence() to return 0 regardless
+                # of the config ceiling. pred.confidence = np.max(predict_proba())
+                # is always ≥ 0.33 for 3 classes and never zeros out signals.
+                confidence = pred.confidence
                 ml_score = (pred.label - 1) / 1.0  # map 0,1,2 → -1,0,1
             else:
                 confidence = 0.5
