@@ -235,10 +235,16 @@ class Worker:
         sentiment_interval = wcfg.sentiment_interval_minutes * 60
         health_interval = wcfg.health_interval_seconds
 
-        last_signal = 0.0
-        last_candle = 0.0
-        last_sentiment = 0.0
-        last_health = 0.0
+        # Seed timestamps so all tasks fire on the FIRST loop iteration.
+        # asyncio.get_event_loop().time() uses time.monotonic() (seconds since
+        # host boot). On freshly provisioned Railway VMs the value can be less
+        # than signal_interval (3600s), so "last_X = 0.0" would never satisfy
+        # "now - last_X >= interval" until the host has been up long enough.
+        now_init = asyncio.get_event_loop().time()
+        last_signal = now_init - signal_interval
+        last_candle = now_init - candle_interval
+        last_sentiment = now_init - sentiment_interval
+        last_health = 0.0  # health check can also fire immediately
 
         while True:
             now = asyncio.get_event_loop().time()
