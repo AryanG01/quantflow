@@ -70,32 +70,76 @@ class Worker:
             )
         )
 
+    def _get_latest_candle_time(self, symbol: str, timeframe: str) -> datetime | None:
+        """Query the DB for the most recent candle time for this symbol/timeframe."""
+        candles_table = sa.Table(
+            "candles",
+            sa.MetaData(),
+            sa.Column("time", sa.DateTime(timezone=True)),
+            sa.Column("symbol", sa.Text),
+            sa.Column("timeframe", sa.Text),
+        )
+        with self._engine.connect() as conn:
+            result = conn.execute(
+                sa.select(sa.func.max(candles_table.c.time)).where(
+                    sa.and_(
+                        candles_table.c.symbol == symbol,
+                        candles_table.c.timeframe == timeframe,
+                    )
+                )
+            )
+            row = result.scalar()
+            if row is None:
+                return None
+            ts: datetime = row
+            return ts if ts.tzinfo is not None else ts.replace(tzinfo=UTC)
+
     async def _startup_backfill(self) -> None:
         """Backfill historical candles on startup so model can train immediately.
 
-        Uses config.universe.lookback_days to determine how far back to fetch.
+        Queries existing DB data first — only fetches candles newer than the
+        most recent stored candle. Falls back to full lookback_days when the
+        DB is empty for a symbol. This prevents blocking the pipeline loop on
+        restarts when historical data is already present.
+
         Rate-limit errors are caught and logged — they do not prevent startup.
         """
         try:
             from packages.common.config import ExchangeConfig
+            from packages.common.time_utils import timeframe_to_ms
             from packages.data_ingestion.backfill import backfill_candles
             from packages.data_ingestion.binance_adapter import BinanceAdapter
 
             exchange_cfg = self._config.exchanges.get("binance", ExchangeConfig())
             adapter = BinanceAdapter(config=exchange_cfg)
-            start = datetime.now(UTC) - timedelta(days=self._config.universe.lookback_days)
+            timeframe = self._config.universe.timeframe
+            full_start = datetime.now(UTC) - timedelta(days=self._config.universe.lookback_days)
+            tf_ms = timeframe_to_ms(timeframe)
 
-            logger.info(
-                "startup_backfill_started",
-                lookback_days=self._config.universe.lookback_days,
-            )
+            logger.info("startup_backfill_started")
             for symbol in self._config.universe.symbols:
                 try:
+                    latest = self._get_latest_candle_time(symbol, timeframe)
+                    if latest is not None:
+                        # Start one bar after the last stored candle
+                        start = latest + timedelta(milliseconds=tf_ms)
+                        logger.info(
+                            "startup_backfill_incremental",
+                            symbol=symbol,
+                            from_time=start.isoformat(),
+                        )
+                    else:
+                        start = full_start
+                        logger.info(
+                            "startup_backfill_full",
+                            symbol=symbol,
+                            lookback_days=self._config.universe.lookback_days,
+                        )
                     inserted = await backfill_candles(
                         provider=adapter,
                         engine=self._engine,
                         symbol=symbol,
-                        timeframe=self._config.universe.timeframe,
+                        timeframe=timeframe,
                         start=start,
                     )
                     logger.info("startup_backfill_symbol_done", symbol=symbol, inserted=inserted)
