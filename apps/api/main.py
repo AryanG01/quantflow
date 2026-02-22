@@ -1165,10 +1165,26 @@ async def place_order(body: OrderCreateRequest) -> TradeResponse:
             if side == Side.BUY:
                 new_cash = portfolio.cash - fill_cost - fees
                 new_pos_value = portfolio.positions_value + fill_cost
+                trade_realized_pnl = 0.0
             else:
+                # Look up entry price so we reduce positions_value at cost basis,
+                # not at the (potentially higher) sell price — avoids phantom equity.
+                try:
+                    with engine.connect() as conn:
+                        ep_row = conn.execute(
+                            sa.select(_positions_table.c.avg_entry_price).where(
+                                _positions_table.c.symbol == body.symbol
+                            )
+                        ).fetchone()
+                    entry_price = float(ep_row[0]) if ep_row and ep_row[0] else fill_price
+                except Exception:
+                    entry_price = fill_price
+                entry_cost = entry_price * order.filled_qty
+                trade_realized_pnl = fill_cost - entry_cost - fees
                 new_cash = portfolio.cash + fill_cost - fees
-                new_pos_value = max(0.0, portfolio.positions_value - fill_cost)
-            new_equity = new_cash + new_pos_value + portfolio.unrealized_pnl
+                new_pos_value = max(0.0, portfolio.positions_value - entry_cost)
+            # Cost-basis accounting: equity = cash + positions_value (no unrealized term)
+            new_equity = new_cash + new_pos_value
             try:
                 with engine.connect() as conn:
                     peak_row = conn.execute(
@@ -1183,8 +1199,8 @@ async def place_order(body: OrderCreateRequest) -> TradeResponse:
                             equity=new_equity,
                             cash=new_cash,
                             positions_value=new_pos_value,
-                            unrealized_pnl=portfolio.unrealized_pnl,
-                            realized_pnl=portfolio.realized_pnl,
+                            unrealized_pnl=0.0,
+                            realized_pnl=portfolio.realized_pnl + trade_realized_pnl,
                             drawdown_pct=drawdown_pct,
                         )
                     )

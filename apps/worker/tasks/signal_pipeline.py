@@ -707,38 +707,147 @@ class SignalPipeline:
                 realized_pnl=trade_realized_pnl,
             )
 
-            # 10d. Upsert position
+            # 10d. Upsert position with correct weighted-average entry price.
+            # Adding to an existing position requires blending the old and new
+            # fill prices rather than overwriting — otherwise the entry price
+            # used for realized PnL on a later SELL will be wrong.
             if order.status == OrderStatus.FILLED:
                 fill_price = order.avg_fill_price or current_price
-                self._persist_position(
-                    symbol=symbol,
-                    exchange=order.exchange,
-                    side=signal.direction.value,
-                    quantity=order.filled_qty if side == Side.BUY else 0.0,
-                    avg_entry_price=fill_price,
-                    unrealized_pnl=0.0,
-                    realized_pnl=trade_realized_pnl,
-                )
+                if side == Side.BUY:
+                    # Compute weighted average entry price
+                    prev_qty = existing_qty  # captured before the order
+                    prev_entry = self._get_position_entry_price(symbol) or fill_price
+                    new_total_qty = prev_qty + order.filled_qty
+                    if new_total_qty > 0:
+                        new_avg_entry = (
+                            prev_qty * prev_entry + order.filled_qty * fill_price
+                        ) / new_total_qty
+                    else:
+                        new_avg_entry = fill_price
+                    self._persist_position(
+                        symbol=symbol,
+                        exchange=order.exchange,
+                        side=signal.direction.value,
+                        quantity=new_total_qty,
+                        avg_entry_price=new_avg_entry,
+                        unrealized_pnl=0.0,
+                        realized_pnl=0.0,
+                    )
+                else:
+                    # SELL closes the position
+                    self._persist_position(
+                        symbol=symbol,
+                        exchange=order.exchange,
+                        side=signal.direction.value,
+                        quantity=0.0,
+                        avg_entry_price=fill_price,
+                        unrealized_pnl=0.0,
+                        realized_pnl=trade_realized_pnl,
+                    )
 
         except Exception as e:
             record_error("signal_pipeline")
             logger.error("pipeline_error", symbol=symbol, error=str(e))
             # Do not re-raise — let other symbols continue
 
+    def _mark_to_market(self, snapshot: PortfolioSnapshot) -> PortfolioSnapshot:
+        """Recompute equity using current market prices for all open positions.
+
+        The trade-time accounting records positions at cost basis and sets
+        unrealized_pnl=0. This method enriches the snapshot with live prices
+        so the equity curve and dashboard reflect actual paper-trading performance.
+        """
+        try:
+            pos_query = sa.text(
+                "SELECT symbol, quantity, avg_entry_price FROM positions WHERE quantity > 0"
+            )
+            with self._engine.connect() as conn:
+                positions = conn.execute(pos_query).fetchall()
+
+            if not positions:
+                return snapshot
+
+            total_unrealized = 0.0
+            total_market_value = 0.0
+            for symbol, qty, entry_price in positions:
+                if not qty or qty <= 0:
+                    continue
+                # Get latest close price for this symbol
+                price_query = sa.text(
+                    """
+                    SELECT close FROM candles
+                    WHERE symbol = :symbol AND timeframe = :tf
+                    ORDER BY time DESC LIMIT 1
+                    """
+                )
+                with self._engine.connect() as conn:
+                    row = conn.execute(
+                        price_query,
+                        {"symbol": symbol, "tf": self._config.universe.timeframe},
+                    ).fetchone()
+                if not row:
+                    # Fallback to cost basis if no price
+                    total_market_value += (entry_price or 0.0) * qty
+                    continue
+
+                current_price = float(row[0])
+                market_value = current_price * qty
+                cost_basis = (entry_price or current_price) * qty
+                unrealized = market_value - cost_basis
+
+                total_market_value += market_value
+                total_unrealized += unrealized
+
+                # Update position-level unrealized_pnl
+                with self._engine.begin() as conn:
+                    conn.execute(
+                        sa.text(
+                            "UPDATE positions SET unrealized_pnl = :upnl, updated_at = :now "
+                            "WHERE symbol = :sym"
+                        ),
+                        {"upnl": round(unrealized, 4), "now": datetime.now(UTC), "sym": symbol},
+                    )
+
+            # Build mark-to-market snapshot:
+            # equity = cash + market_value_of_positions
+            new_equity = snapshot.cash + total_market_value
+            dd = self._drawdown_monitor.update(new_equity)
+
+            return snapshot.model_copy(
+                update={
+                    "time": datetime.now(UTC),
+                    "equity": new_equity,
+                    "positions_value": total_market_value,
+                    "unrealized_pnl": total_unrealized,
+                    "drawdown_pct": dd,
+                }
+            )
+        except Exception as e:
+            logger.warning("mark_to_market_failed", error=str(e))
+            return snapshot.model_copy(update={"time": datetime.now(UTC)})
+
     async def run(self) -> None:
         """Run pipeline for all configured symbols."""
         for symbol in self._config.universe.symbols:
             await self.run_for_symbol(symbol)
 
-        # Update portfolio metrics from DB-backed store
+        # Mark-to-market: update equity and unrealized PnL with current prices
+        # so the equity curve reflects real paper-trading performance, not just
+        # cost basis (which is flat between trades).
         snapshot = self._portfolio_store.get_snapshot()
-        dd = self._drawdown_monitor.update(snapshot.equity)
-        update_portfolio_metrics(snapshot.equity, dd, len(self._order_manager.open_orders))
+        mtm_snapshot = self._mark_to_market(snapshot)
+        dd = mtm_snapshot.drawdown_pct
+
+        update_portfolio_metrics(mtm_snapshot.equity, dd, len(self._order_manager.open_orders))
 
         # Persist risk metrics
         self._persist_risk_metrics()
 
-        # Write snapshot every run so equity curve builds even with no trades
-        updated = snapshot.model_copy(update={"time": datetime.now(UTC), "drawdown_pct": dd})
-        self._portfolio_store.save_snapshot(updated)
-        logger.info("portfolio_snapshot_written", equity=snapshot.equity, drawdown=dd)
+        # Write mark-to-market snapshot so equity curve builds on every run
+        self._portfolio_store.save_snapshot(mtm_snapshot)
+        logger.info(
+            "portfolio_snapshot_written",
+            equity=round(mtm_snapshot.equity, 2),
+            unrealized_pnl=round(mtm_snapshot.unrealized_pnl, 2),
+            drawdown=round(dd, 4),
+        )
