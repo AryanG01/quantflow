@@ -1105,7 +1105,14 @@ async def place_order(body: OrderCreateRequest) -> TradeResponse:
                     ),
                 )
 
-    order_mgr = OrderManager(paper_mode=True)
+    from packages.common.config import ExchangeConfig
+
+    exchange_cfg = _cfg.exchanges.get("binance", ExchangeConfig())
+    order_mgr = OrderManager(
+        paper_mode=True,
+        slippage_bps=_cfg.execution.slippage_model.fixed_spread_bps,
+        fee_rate=exchange_cfg.fees_bps.taker / 10_000.0,
+    )
 
     side = Side.BUY if body.side.lower() == "buy" else Side.SELL
     order_type = OrderType.LIMIT if body.order_type.lower() == "limit" else OrderType.MARKET
@@ -1121,11 +1128,14 @@ async def place_order(body: OrderCreateRequest) -> TradeResponse:
         price=price,
     )
 
-    # Persist to DB if available
+    fill_price = order.avg_fill_price or price or 0.0
+    fees = order.fees or 0.0
+
+    # Persist order and update portfolio snapshot
     engine = _get_db()
     if engine is not None:
         try:
-            with engine.connect() as conn:
+            with engine.begin() as conn:
                 conn.execute(
                     _orders_table.insert().values(
                         id=order.id,
@@ -1146,15 +1156,40 @@ async def place_order(body: OrderCreateRequest) -> TradeResponse:
                         realized_pnl=0.0,
                     )
                 )
-                conn.commit()
         except Exception as e:
             logger.warning("order_persist_failed", error=str(e))
 
-    fill_price = order.avg_fill_price or price or 0.0
-    from packages.common.config import ExchangeConfig
-
-    taker_fee_rate = _cfg.exchanges.get("binance", ExchangeConfig()).fees_bps.taker / 10_000.0
-    fees = round(fill_price * order.quantity * taker_fee_rate, 2)
+        # Update portfolio snapshot to reflect the fill
+        if portfolio and order.filled_qty and order.filled_qty > 0:
+            fill_cost = fill_price * order.filled_qty
+            if side == Side.BUY:
+                new_cash = portfolio.cash - fill_cost - fees
+                new_pos_value = portfolio.positions_value + fill_cost
+            else:
+                new_cash = portfolio.cash + fill_cost - fees
+                new_pos_value = max(0.0, portfolio.positions_value - fill_cost)
+            new_equity = new_cash + new_pos_value + portfolio.unrealized_pnl
+            try:
+                with engine.connect() as conn:
+                    peak_row = conn.execute(
+                        sa.text("SELECT MAX(equity) FROM portfolio_snapshots")
+                    ).fetchone()
+                peak = float(peak_row[0]) if peak_row and peak_row[0] else new_equity
+                drawdown_pct = max(0.0, (peak - new_equity) / peak) if peak > 0 else 0.0
+                with engine.begin() as conn:
+                    conn.execute(
+                        _portfolio_table.insert().values(
+                            time=datetime.now(UTC),
+                            equity=new_equity,
+                            cash=new_cash,
+                            positions_value=new_pos_value,
+                            unrealized_pnl=portfolio.unrealized_pnl,
+                            realized_pnl=portfolio.realized_pnl,
+                            drawdown_pct=drawdown_pct,
+                        )
+                    )
+            except Exception as e:
+                logger.warning("portfolio_snapshot_update_failed", error=str(e))
 
     return TradeResponse(
         id=order.id,
@@ -1163,7 +1198,7 @@ async def place_order(body: OrderCreateRequest) -> TradeResponse:
         side=order.side.value,
         quantity=order.quantity,
         price=round(fill_price, 2),
-        fees=fees,
+        fees=round(fees, 2),
         pnl=0.0,
         signal_strength=0.0,
         regime="unknown",

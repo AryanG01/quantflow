@@ -43,27 +43,48 @@ class LightGBMQuantileModel(ModelPredictor):
         self._model_id = f"lgbm_quantile_{uuid.uuid4().hex[:8]}"
         self._feature_names: list[str] = []
 
-    def train(self, X: pd.DataFrame, y: npt.NDArray[np.int64]) -> dict[str, float]:
+    def train(
+        self,
+        X: pd.DataFrame,
+        y: npt.NDArray[np.int64],
+        y_returns: npt.NDArray[np.float64] | None = None,
+    ) -> dict[str, float]:
         """Train quantile regression models + classifier.
 
         The classifier predicts the 3-class label (down/neutral/up).
-        Quantile regressors predict return distribution for uncertainty.
+        Quantile regressors predict the distribution of forward returns
+        (or fall back to label values if y_returns is not provided).
+
+        Args:
+            X: Feature matrix.
+            y: Integer class labels (0=down, 1=neutral, 2=up).
+            y_returns: Continuous forward log-returns aligned with y (preferred
+                quantile regression target). Falls back to ``y`` when None.
         """
+        from sklearn.model_selection import cross_val_score
+
         self._feature_names = list(X.columns)
 
-        # Train classifier for label prediction
-        self._classifier = lgb.LGBMClassifier(
-            n_estimators=self._n_estimators,
-            learning_rate=self._learning_rate,
-            max_depth=self._max_depth,
-            num_leaves=self._num_leaves,
-            verbose=-1,
-            n_jobs=1,
-        )
-        self._classifier.fit(X, y)
-        train_acc = float(np.mean(self._classifier.predict(X) == y))
+        def _make_clf() -> lgb.LGBMClassifier:
+            return lgb.LGBMClassifier(
+                n_estimators=self._n_estimators,
+                learning_rate=self._learning_rate,
+                max_depth=self._max_depth,
+                num_leaves=self._num_leaves,
+                verbose=-1,
+                n_jobs=1,
+            )
 
-        # Train quantile regressors (using label as continuous target)
+        # 5-fold cross-validation accuracy — unbiased estimate of generalization
+        cv_scores = cross_val_score(_make_clf(), X, y, cv=5, scoring="accuracy")
+        val_acc = float(np.mean(cv_scores))
+
+        # Train final classifier on full data
+        self._classifier = _make_clf()
+        self._classifier.fit(X, y)
+
+        # Quantile regressors use continuous forward returns for meaningful IQR
+        q_target = y_returns if y_returns is not None else y.astype(np.float64)
         for q in self._quantiles:
             model = lgb.LGBMRegressor(
                 objective="quantile",
@@ -75,10 +96,10 @@ class LightGBMQuantileModel(ModelPredictor):
                 verbose=-1,
                 n_jobs=1,
             )
-            model.fit(X, y.astype(np.float64))
+            model.fit(X, q_target)
             self._models[q] = model
 
-        return {"val_accuracy": train_acc}
+        return {"val_accuracy": val_acc}
 
     def predict(self, X: pd.DataFrame) -> list[PredictionResult]:
         """Generate predictions with uncertainty estimates."""

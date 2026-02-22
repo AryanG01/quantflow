@@ -103,13 +103,6 @@ _risk_table = sa.Table(
     sa.Column("kill_switch_active", sa.Boolean),
 )
 
-_portfolio_snapshots_table = sa.Table(
-    "portfolio_snapshots",
-    _meta,
-    sa.Column("time", sa.DateTime(timezone=True)),
-    sa.Column("equity", sa.Float),
-)
-
 
 class SignalPipeline:
     """Orchestrates the full signal generation and execution pipeline."""
@@ -487,11 +480,20 @@ class SignalPipeline:
                 clean_candles["close"],
                 config=self._config.model.labeling,
             )
+            # Compute forward log-returns aligned with labels — used as the
+            # continuous target for quantile regressors so IQR reflects
+            # real return uncertainty rather than coarse integer labels.
+            horizon = self._config.model.labeling.max_holding_bars
+            log_returns = np.log(
+                clean_candles["close"].shift(-horizon) / clean_candles["close"]
+            ).to_numpy(dtype=np.float64)
+
             valid_labels = labels >= 0
             if valid_labels.sum() > self._config.portfolio.min_valid_labels:
                 self._model.train(
                     clean_features[valid_labels],
                     labels[valid_labels],
+                    y_returns=log_returns[valid_labels],
                 )
                 self._model_trained = True
                 logger.info("model_trained", n_samples=int(valid_labels.sum()))
