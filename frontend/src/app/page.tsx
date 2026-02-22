@@ -27,7 +27,8 @@ function MetricSkeleton() {
 }
 
 export default function Dashboard() {
-  // health is already polled by SharedHeader in the layout — no need to duplicate it here
+  // Shares the "health" cache key with SharedHeader — no extra network request, just reads cache
+  const { data: health } = usePolling(useCallback(() => api.health(), []), 5000, "health");
   const { data: portfolio } = usePolling(useCallback(() => api.portfolio(), []), 5000, "portfolio");
   const { data: signals } = usePolling(useCallback(() => api.signals(), []), 5000, "signals");
   const { data: positions } = usePolling(useCallback(() => api.positions(), []), 5000, "positions");
